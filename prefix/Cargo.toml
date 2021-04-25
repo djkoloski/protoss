@@ -1,0 +1,20 @@
+[package]
+name = "prefix"
+version = "0.1.0"
+authors = ["David Koloski <djkoloski@gmail.com>"]
+edition = "2018"
+description = "Prefix types for schema evolution"
+license = "MIT"
+documentation = "https://docs.rs/protoss"
+repository = "https://github.com/djkoloski/protoss"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+memoffset = "0.6"
+ptr_meta = "0.1"
+
+[features]
+default = ["std"]
+std = []
+rkyv =  []
