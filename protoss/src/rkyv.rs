@@ -1,69 +1,42 @@
+use crate::{Composite, Partial};
 use rkyv::{
+    boxed::{ArchivedBox, BoxResolver},
     Archive,
-    ArchivedMetadata,
-    ArchivedUsize,
-    ArchivePointee,
     ArchiveUnsized,
-    DeserializeUnsized,
+    Deserialize,
     Fallible,
+    MetadataResolver,
+    Serialize,
     SerializeUnsized,
 };
 
-pub trait ArchiveParts: Partite {
-    fn archived_partial_size(bytes: &[u8]) -> usize;
-    fn unarchived_partial_size(archived_bytes: &[u8]) -> usize;
-}
-
-pub trait SerializeParts<S: Fallible>: ArchiveParts {
-    fn serialize_parts(bytes: &[u8], serializer: &mut S) -> Result<usize, S::Error>;
-}
-
-pub trait DeserializeParts<T: ArchiveParts, D: Fallible>: Partite {
-    fn deserialize_parts(bytes: &[u8], deserializer: &mut D) -> Result<*mut (), D::Error>;
-}
-
-impl<T: Partite> ArchivePointee for Partial<T> {
-    type ArchivedMetadata = ArchivedUsize;
-
-    fn pointer_metadata(archived: &Self::ArchivedMetadata) -> Self::Metadata {
-        *archived as usize
-    }
-}
-
-impl<T: Archive + ArchiveParts> ArchiveUnsized for Partial<T>
+impl<T: Composite> Archive for Partial<T>
 where
-    T::Archived: Partite,
+    T::Parts: ArchiveUnsized,
 {
-    type Archived = Partial<T::Archived>;
-    type MetadataResolver = ();
+    type Archived = ArchivedBox<<T::Parts as ArchiveUnsized>::Archived>;
+    type Resolver = BoxResolver<MetadataResolver<T::Parts>>;
 
-    fn resolve_metadata(&self, _: usize, _: Self::MetadataResolver) -> ArchivedMetadata<Self> {
-        T::archived_partial_size(&self.bytes) as ArchivedUsize
+    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+        ArchivedBox::resolve_from_ref(self.parts(), pos, resolver, out);
     }
 }
 
-impl<S: Fallible, T: Archive + SerializeParts<S>> SerializeUnsized<S> for Partial<T>
+impl<T: Composite, S: Fallible> Serialize<S> for Partial<T>
 where
-    T::Archived: Partite,
+    T::Parts: SerializeUnsized<S>,
 {
-    fn serialize_unsized(&self, serializer: &mut S) -> Result<usize, S::Error> {
-        T::serialize_parts(&self.bytes, serializer)
-    }
-
-    fn serialize_metadata(&self, _: &mut S) -> Result<Self::MetadataResolver, S::Error> {
-        Ok(())
+    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+        ArchivedBox::serialize_from_ref(self.parts(), serializer)
     }
 }
 
-impl<D: Fallible, T: Archive + ArchiveParts> DeserializeUnsized<Partial<T>, D> for Partial<T::Archived>
+impl<T: Composite, D: Fallible> Deserialize<Partial<T>, D> for ArchivedBox<<T::Parts as ArchiveUnsized>::Archived>
 where
-    T::Archived: DeserializeParts<T, D> + Partite,
+    T::Parts: ArchiveUnsized,
+    <T::Parts as ArchiveUnsized>::Archived: Deserialize<Partial<T>, D>,
 {
-    unsafe fn deserialize_unsized(&self, deserializer: &mut D) -> Result<*mut (), D::Error> {
-        T::Archived::deserialize_parts(&self.bytes, deserializer)
-    }
-
-    fn deserialize_metadata(&self, _: &mut D) -> Result<<Partial<T> as Pointee>::Metadata, D::Error> {
-        Ok(T::unarchived_partial_size(&self.bytes))
+    fn deserialize(&self, deserializer: &mut D) -> Result<Partial<T>, D::Error> {
+        self.as_ref().deserialize(deserializer)
     }
 }

@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "prefix",
     "protoss",
     "protoss_derive",
     "protoss_test",

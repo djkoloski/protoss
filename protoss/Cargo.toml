@@ -3,13 +3,18 @@ name = "protoss"
 version = "0.1.0"
 authors = ["David Koloski <djkoloski@gmail.com>"]
 edition = "2018"
+description = "Schema evolution for rust"
+license = "MIT"
+documentation = "https://docs.rs/protoss"
+repository = "https://github.com/djkoloski/protoss"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+protoss_derive = { version = "=0.1.0", path = "../protoss_derive" }
 ptr_meta = "0.1"
-rkyv = { version = "0.4", optional = true }
+rkyv = { version = "0.7", optional = true }
 
 [features]
-default = ["std"]
+default = ["rkyv", "std"]
 std = []
