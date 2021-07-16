@@ -232,8 +232,11 @@ mod tests {
     #[test]
     fn check_derive() {
         use protoss::protoss;
+        use rkyv::{Archive, Deserialize, Serialize};
 
         protoss! {
+            #[derive(Archive, Deserialize, Serialize)]
+            #[archive(as = "Self")]
             pub struct Test {
                 #[version = 0]
                 pub a: i32,

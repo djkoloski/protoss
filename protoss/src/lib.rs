@@ -1,8 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "rkyv")]
-mod rkyv;
-
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
@@ -218,3 +215,57 @@ impl<T: Composite> fmt::Debug for Partial<T> {
             .finish()
     }
 }
+
+#[cfg(feature = "rkyv")]
+const _: () = {
+    use ::rkyv::{
+        boxed::{ArchivedBox, BoxResolver},
+        Archive,
+        ArchiveUnsized,
+        Deserialize,
+        DeserializeUnsized,
+        Fallible,
+        Serialize,
+        SerializeUnsized,
+    };
+
+    impl<T: Composite> Archive for Partial<T>
+    where
+        T::Parts: ArchiveUnsized,
+    {
+        type Archived = ArchivedBox<<T::Parts as ArchiveUnsized>::Archived>;
+        type Resolver = BoxResolver<<T::Parts as ArchiveUnsized>::MetadataResolver>;
+
+        unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+            ArchivedBox::resolve_from_ref(self.parts(), pos, resolver, out);
+        }
+    }
+
+    impl<T: Composite, S: Fallible + ?Sized> Serialize<S> for Partial<T>
+    where
+        T::Parts: SerializeUnsized<S>,
+    {
+        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+            ArchivedBox::serialize_from_ref(self.parts(), serializer)
+        }
+    }
+
+    impl<T: Composite, D: Fallible + ?Sized> Deserialize<Partial<T>, D> for ArchivedBox<<T::Parts as ArchiveUnsized>::Archived>
+    where
+        T::Parts: ArchiveUnsized,
+        <T::Parts as ArchiveUnsized>::Archived: DeserializeUnsized<T::Parts, D>,
+    {
+        fn deserialize(&self, deserializer: &mut D) -> Result<Partial<T>, D::Error> {
+            unsafe {
+                let mut value = ::core::mem::MaybeUninit::<T>::uninit();
+                let mut size = 0;
+                self.as_ref().deserialize_unsized(deserializer, |layout| {
+                    size = layout.size();
+                    value.as_mut_ptr().cast()
+                })?;
+
+                Ok(Partial::new_unchecked(value, size))
+            }
+        }
+    }
+};
