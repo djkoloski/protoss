@@ -53,10 +53,26 @@ pub fn parts_struct_name(name: &Ident) -> Ident {
     Ident::new(&format!("{}Parts", name), name.span())
 }
 
+pub fn archived_parts_struct_name(name: &Ident) -> Ident {
+    Ident::new(&format!("Archived{}Parts", name), name.span())
+}
+
+pub fn version_accessor_unchecked(version: usize) -> Ident {
+    Ident::new(&format!("__version_{}_unchecked", version), Span::call_site())
+}
+
 pub fn version_accessor(version: usize) -> Ident {
     Ident::new(&format!("__version_{}", version), Span::call_site())
 }
 
+pub fn version_accessor_mut_unchecked(version: usize) -> Ident {
+    Ident::new(&format!("__version_{}_mut_unchecked", version), Span::call_site())
+}
+
 pub fn version_accessor_mut(version: usize) -> Ident {
     Ident::new(&format!("__version_{}_mut", version), Span::call_site())
+}
+
+pub fn version_size_const(version: usize) -> Ident {
+    Ident::new(&format!("VERSION_{}_SIZE", version), Span::call_site())
 }

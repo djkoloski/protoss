@@ -29,7 +29,7 @@ pub struct Partial<T: Composite> {
 impl<T: Composite> Drop for Partial<T> {
     fn drop(&mut self) {
         unsafe {
-            ptr::drop_in_place(self.value.as_mut_ptr());
+            ptr::drop_in_place(self.parts_mut());
         }
     }
 }

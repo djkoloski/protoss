@@ -1,3 +1,6 @@
+#[cfg(feature = "rkyv")]
+mod rkyv;
+
 #[cfg(test)]
 mod tests {
     use protoss::{Composite, Partial};
@@ -93,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    pub fn basic_evolution() {
+    fn basic_evolution() {
         let partial_v0 = Partial::new(ExampleV0 {
             a: 1,
         });
@@ -126,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    pub fn into_boxed_parts() {
+    fn into_boxed_parts() {
         let partial_v1 = Partial::new(ExampleV1 {
             a: 2,
             b: String::from("foo"),
@@ -139,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    pub fn check_drop() {
+    fn check_drop() {
         use std::rc::Rc;
 
         impl_composite! {
@@ -232,11 +235,8 @@ mod tests {
     #[test]
     fn check_derive() {
         use protoss::protoss;
-        use rkyv::{Archive, Deserialize, Serialize};
 
         #[protoss]
-        #[derive(Archive, Deserialize, Serialize)]
-        #[archive(as = "Self")]
         pub struct Test {
             #[version = 0]
             pub a: i32,

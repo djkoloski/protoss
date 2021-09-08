@@ -1,9 +1,37 @@
 use crate::util::*;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{Error, Ident, ItemStruct};
+use syn::{Error, Generics, Ident, ItemStruct, Meta, punctuated::Punctuated, parse_quote};
 
-pub fn generate(input: &ItemStruct) -> Result<TokenStream, Error> {
+#[derive(Default)]
+pub struct Settings {
+    impl_rkyv: bool,
+}
+
+impl Settings {
+    pub fn from_attr(attr: &Option<Meta>) -> Result<Self, Error> {
+        let mut result = Self::default();
+
+        if let Some(meta) = attr {
+            match meta {
+                Meta::Path(path) => {
+                    if path.is_ident("rkyv") {
+                        result.impl_rkyv = true;
+                    } else {
+                        return Err(Error::new_spanned(path, "unrecognized protoss argument"));
+                    }
+                }
+                _ => return Err(Error::new_spanned(meta, "protoss arguments must be of the form `protoss(...)`")),
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+pub fn generate(attr: &Option<Meta>, input: &ItemStruct) -> Result<TokenStream, Error> {
+    let settings = Settings::from_attr(attr)?;
+
     let name = &input.ident;
     let vis = &input.vis;
     let generics = &input.generics;
@@ -13,6 +41,8 @@ pub fn generate(input: &ItemStruct) -> Result<TokenStream, Error> {
 
     let attrs = &input.attrs;
 
+    let rkyv_args = settings.impl_rkyv.then(|| quote! { #[archive_attr(repr(C))] });
+
     let versions = collect_versions(&input.fields)?;
 
     let version_structs = versions.iter().map(|(version, fields)| {
@@ -21,8 +51,9 @@ pub fn generate(input: &ItemStruct) -> Result<TokenStream, Error> {
         let field_types = fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
 
         quote! {
-            // TODO: #[repr(C)] if struct
+            #[repr(C)]
             #(#attrs)*
+            #rkyv_args
             #vis struct #struct_name #generics {
                 #(#field_names: #field_types,)*
                 _phantom: ::core::marker::PhantomData<#name #ty_generics>,
@@ -104,12 +135,20 @@ pub fn generate(input: &ItemStruct) -> Result<TokenStream, Error> {
     });
 
     let version_accessors = versions.iter().map(|(version, _)| {
+        let version_accessor_unchecked = version_accessor_unchecked(*version);
         let version_accessor = version_accessor(*version);
+        let version_accessor_mut_unchecked = version_accessor_mut_unchecked(*version);
         let version_accessor_mut = version_accessor_mut(*version);
         let version_struct = version_struct_name(name, *version);
         let version_field = version_field_name(*version);
 
         quote! {
+            unsafe fn #version_accessor_unchecked(&self) -> &#version_struct #ty_generics {
+                let struct_ptr = (self as *const Self).cast::<#name #ty_generics>();
+                let field_ptr = ::core::ptr::addr_of!((*struct_ptr).#version_field);
+                &*field_ptr
+            }
+
             fn #version_accessor(&self) -> Option<&#version_struct #ty_generics> {
                 unsafe {
                     let struct_ptr = (self as *const Self).cast::<#name #ty_generics>();
@@ -122,6 +161,12 @@ pub fn generate(input: &ItemStruct) -> Result<TokenStream, Error> {
                         Some(&*field_ptr)
                     }
                 }
+            }
+
+            unsafe fn #version_accessor_mut_unchecked(&mut self) -> &mut #version_struct #ty_generics {
+                let struct_ptr = (self as *mut Self).cast::<#name #ty_generics>();
+                let field_ptr = ::core::ptr::addr_of_mut!((*struct_ptr).#version_field);
+                &mut *field_ptr
             }
 
             fn #version_accessor_mut(&mut self) -> Option<&mut #version_struct #ty_generics> {
@@ -163,11 +208,112 @@ pub fn generate(input: &ItemStruct) -> Result<TokenStream, Error> {
         quote! { #(#result)* }
     });
 
+    let rkyv_impl = settings.impl_rkyv.then(|| {
+        let version_size_const = versions.iter()
+            .map(|(version, _)| version_size_const(*version))
+            .collect::<Vec<_>>();
+
+        let version_size = versions.iter().map(|(version, _)| {
+            let struct_name = version_struct_name(name, *version);
+            quote! { ::core::mem::size_of::<#struct_name #ty_generics>() }
+        }).collect::<Vec<_>>();
+
+        let archived_version_size = versions.iter().map(|(version, _)| {
+            let struct_name = version_struct_name(name, *version);
+            quote! { ::core::mem::size_of::<::rkyv::Archived<#struct_name #ty_generics>>() }
+        });
+
+        let serialize_version = versions.iter().map(|(version, _)| {
+            let version_accessor_unchecked = version_accessor_unchecked(*version);
+            quote! {
+                ::rkyv::SerializeUnsized::serialize_unsized(
+                    unsafe { self.#version_accessor_unchecked() },
+                    serializer,
+                )
+            }
+        });
+
+        let archived_parts = archived_parts_struct_name(name);
+
+        let serialize_generics = {
+            let mut serialize_where_clause = where_clause.clone();
+            for (version, _) in versions.iter() {
+                let struct_name = version_struct_name(name, *version);
+                serialize_where_clause.predicates.push(parse_quote! { #struct_name #ty_generics: ::rkyv::Serialize<__S> })
+            }
+
+            let mut serialize_params = Punctuated::default();
+            serialize_params.push(parse_quote! { __S: ::rkyv::ser::Serializer + ?Sized });
+            for param in input.generics.params.iter() {
+                serialize_params.push(param.clone());
+            }
+
+            Generics {
+                lt_token: Some(Default::default()),
+                params: serialize_params,
+                gt_token: Some(Default::default()),
+                where_clause: Some(serialize_where_clause),
+            }
+        };
+        let (serialize_impl_generics, _, serialize_where_clause) = serialize_generics.split_for_impl();
+
+        quote! {
+            #[repr(transparent)]
+            #[derive(::ptr_meta::Pointee)]
+            #vis struct #archived_parts #generics {
+                _phantom: ::core::marker::PhantomData<::rkyv::Archived<#name #ty_generics>>,
+                bytes: [u8],
+            }
+
+            impl #impl_generics ::rkyv::ArchivePointee for #archived_parts #ty_generics {
+                type ArchivedMetadata = ::rkyv::Archived<usize>;
+
+                fn pointer_metadata(archived: &Self::ArchivedMetadata) -> usize {
+                    ::rkyv::from_archived!(*archived) as usize
+                }
+            }
+
+            impl #impl_generics ::rkyv::ArchiveUnsized for #parts #ty_generics {
+                type Archived = #archived_parts #ty_generics;
+                type MetadataResolver = ();
+
+                unsafe fn resolve_metadata(
+                    &self,
+                    pos: usize,
+                    resolver: Self::MetadataResolver,
+                    out: *mut ::rkyv::Archived<usize>,
+                ) {
+                    #(const #version_size_const: usize = #version_size;)*
+                    let len = match self.bytes.len() {
+                        #(#version_size_const => #archived_version_size,)*
+                        _ => unsafe { ::core::hint::unreachable_unchecked() },
+                    };
+                    out.write(::rkyv::to_archived!(len as ::rkyv::FixedUsize));
+                }
+            }
+
+            impl #serialize_impl_generics ::rkyv::SerializeUnsized<__S> for #parts #ty_generics #serialize_where_clause {
+                fn serialize_unsized(&self, serializer: &mut __S) -> Result<usize, __S::Error> {
+                    #(const #version_size_const: usize = #version_size;)*
+                    match self.bytes.len() {
+                        #(#version_size_const => #serialize_version,)*
+                        _ => unsafe { ::core::hint::unreachable_unchecked() },
+                    }
+                }
+
+                fn serialize_metadata(&self, serializer: &mut __S) -> Result<(), __S::Error> {
+                    Ok(())
+                }
+            }
+        }
+    });
+
     Ok(quote! {
         #(#version_structs)*
 
         #[repr(C)]
         #(#attrs)*
+        #rkyv_args
         #vis struct #name #generics {
             #(#composite_fields,)*
         }
@@ -214,5 +360,7 @@ pub fn generate(input: &ItemStruct) -> Result<TokenStream, Error> {
 
             #(#field_accessors)*
         }
+
+        #rkyv_impl
     })
 }
