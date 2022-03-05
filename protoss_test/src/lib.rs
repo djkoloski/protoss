@@ -3,9 +3,9 @@ mod rkyv;
 
 #[cfg(test)]
 mod tests {
-    use protoss::{Composite, Partial};
+    use protoss::{Proto, Versioned};
 
-    macro_rules! impl_composite {
+    macro_rules! impl_versioned {
         (
             struct $composite:ident as $parts:ident {
                 $($field:ident ($field_mut:ident): $ty:ty,)*
