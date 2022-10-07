@@ -13,4 +13,4 @@ ptr_meta = "0.1"
 rkyv = { version = "0.7", optional = true }
 
 [features]
-default = ["rkyv"]
+# default = ["rkyv"]
