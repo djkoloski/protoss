@@ -1,20 +1,68 @@
+//! `protoss` implements a protocol for [schema evolution] of
+//! binary serialized data, designed to be used with [`rkyv`][::rkyv].
+//! 
+//! It offers **full** compatibilty* (forward and backward) and **zero-copy deserialization** among **minor versions**
+//! (under a restrictive set of allowed changes), and **backward** compatibility* among **major versions**
+//! (allow arbitrary changes).
+//! 
+//! \* *A note on compatibility types:*
+//! * **Backward** compatibility means that consumers (readers of serialized data) can read data
+//! *produced by* an **older** version of the schema.
+//! * **Forward** compatiblity means that consumers (readers of serialized data) can read data
+//! *produced by* a **newer** version of the schema.
+//! 
+//! **Minor version** upgrades may:
+//! * Add new fields
+//!     - These new fields are always treated as optional
+//!     - Fields may only be added to the end of an existing type
+//!         - *but if you use ids you can define them in any order in code as long as the ids dont change*
+//! 
+//! You can think of this as a similar type of schema evolution as what Protocol Buffers, Flatbuffers, and Cap'n Proto
+//! offer. Existing consumers expecting a previous version may still read data produced with the new version as
+//! the old version, and consumers expecting the new version will still be able to read all the fields that were defined
+//! by the older producer.
+//! 
+//! **Major version** upgrades may:
+//! * Do anything they want to the type
+//! 
+//! After a major version change, existing consumers (readers of serialized data) expecting a *previous version*
+//! will no longer be able to read data produced with the newer major version.
+//! 
+//! New consumers which have updated to the latest major version that expect the latest major version
+//! will no longer have *zero copy* access to data produced with a previous version (unless they specifically
+//! choose to ask for the data as the older major version). However, they *can* still get access to a new copy
+//! of the data in the latest major version which has been upgraded (via a best-effort upgrade function
+//! chain).**
+//! 
+//! \*\* *TODO: This not actually implemented at all yet ;p*
+//! 
+//! For more on how this works, see the documentation of the [`Evolving`] trait, which is the centerpiece of the `protoss`
+//! model, for more.
+//! 
+//! [schema evolution]: https://martin.kleppmann.com/2012/12/05/schema-evolution-in-avro-protocol-buffers-thrift.html
 #![deny(unsafe_op_in_unsafe_fn)]
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::missing_crate_level_docs)]
+#![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
 // mod pylon;
+mod rkyv;
 
 use core::fmt;
-use core::marker::PhantomData;
 
 use ::ptr_meta::Pointee;
+pub use crate::rkyv::*;
 // pub use pylon::*;
 // pub use protoss_derive::protoss;
 
+/// A common error type for all errors that could occur in `protoss`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
+    /// Tried to get [Probe][ProbeOf] metadata for a non-existent version of an [`Evolving`] type.
     TriedToGetProbeMetadataForNonExistentVersion
 }
 
@@ -28,112 +76,117 @@ impl fmt::Display for Error {
     }
 }
 
+/// A version identifier containing a major and minor version.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct Version {
+    /// The **major version**.
+    /// 
+    /// Major versions are **not** binary-compatible with each other.
     pub major: u16,
+
+    /// The **minor version**.
+    /// 
+    /// Minor versions of the same major version **are** binary-compatible with each other
+    /// and may be probed by a [Probe][ProbeOf] compatible with the major version they are
+    /// part of.
     pub minor: u16,
 }
 
 impl Version {
+    /// Create a new [`Version`] from a given `major` and `minor` version
     pub const fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }
     }
 
+    /// Get a tuple `(major, minor)` of the versions contained in `self`
     pub const fn major_minor(self) -> (u16, u16) {
         (self.major, self.minor)
     }
 }
 
-/// A type-erased Probe. All concrete Probe types should have the same
-/// layout and [`Metadata`][ptr_meta::Pointee::Metadata] as [`AnyProbe`].
-#[repr(transparent)]
-pub struct AnyProbe<E: Evolving + ?Sized> {
-    _phantom: PhantomData<E>,
-    data: [u8]
-}
-
-
-impl<E: Evolving + ?Sized> AnyProbe<E> {
-    pub unsafe fn as_probe_unchecked<P: ProbeOf<E> + ?Sized>(&self) -> &P {
-        unsafe {
-            &*::ptr_meta::from_raw_parts(
-                self.data.as_ptr().cast(),
-                ptr_meta::metadata(self as *const Self),
-            )
-        }
-    }
-}
-
-impl<E: Evolving + ?Sized> Pointee for AnyProbe<E> {
-    type Metadata = <[u8] as Pointee>::Metadata;
-}
-
-/// An archived version of a Probe for some [`Evolving`] type `E`, containing a boxed [`AnyProbe`] and
-/// a [`Version`].
+/// A type that has multiple versions that may be changed over time. 
 /// 
-/// Can be downcast into a specific [`ProbeOf<E>`], i.e. a Probe for some specific *major version* of `E`.
-#[repr(C)]
-pub struct ArchivedProbe<E: Evolving + ?Sized> {
-    probe: Box<AnyProbe<E>>,
-    version: Version,
-}
-
-impl<E: Evolving + ?Sized> ArchivedProbe<E> {
-    pub fn try_as_probe<P: ProbeOf<E> + ?Sized>(&self) -> Option<&P> {
-        if self.version.major == P::PROBES_MAJOR_VERSION {
-            Some(unsafe { self.probe.as_probe_unchecked() })
-        } else {
-            None
-        }
-    }
-
-    pub fn try_as_latest(&self) -> Option<&E::LatestProbe> {
-        self.try_as_probe()
-    }
-
-    pub fn version(&self) -> Version {
-        self.version
-    }
-
-    pub fn probe_as<V: VersionOf<E>>(&self) -> Option<&V> {
-        if let Some(probe) = self.try_as_probe::<V::ProbedBy>() {
-            probe.probe_as()
-        } else {
-            None
-        }
-    }
-}
-
-/// A type that has multiple versions that may be changed over time.
+/// An [`Evolving`] type may have one or more **major versions** which are binary incompatible,
+/// and each **major version** may have one or more **minor versions** which *are* binary compatible,
+/// following a "schema evolution" process.
+/// 
+/// Each unique version has a concrete backing type which defines its exact layout. Each of these concrete
+/// backing types should implement [`VersionOf<Self>`].
+/// 
+/// Each **major version** also has a concrete "[Probe][ProbeOf]" type, which is
+/// able to "poke at" or "[probe][ProbeOf::probe_as]" serialized binary data which
+/// contains an **unknown** *minor version* within some known *major version* of an `Self`.
+/// Through "probing", we are able to determine which actual [version][`VersionOf`] it contains,
+/// and therefore access it as the specific [version of `Self`][`VersionOf`] we have determined it to be.
 ///
 /// # Safety
 ///
 /// - `probe_metadata` must return valid metadata to construct a `Probe` when combined with
-/// a pointer to a type `V` that implements [`VersionOf<Self>`] where `V::VERSION == version`
-/// - `Latest` must be the newest version of `Self`
+/// a pointer to a type `V` that implements [`VersionOf<Self>`] where `V::VERSION == version`.
+/// See the documentation of [`VersionOf`] for more.
+/// - `LatestVersion` must be the newest version of `Self`
+/// - `LatestProbe` must be a probe capable of handling all existing minor versions of the latest
+/// major version of `Self`.
 pub unsafe trait Evolving {
+    /// The latest [`VersionOf<Self>`]
     type LatestVersion: VersionOf<Self>;
+
+    /// The latest [`ProbeOf<Self>`]
     type LatestProbe: ProbeOf<Self> + ?Sized;
-    fn probe_metadata(version: Version) -> Result<<AnyProbe<Self> as Pointee>::Metadata, crate::Error>;
+
+    /// Returns the [`Pointee::Metadata`] that can be used to construct a [`ProbeOf<Self>`]
+    /// which contains a [`VersionOf<Self>`] with the given `version`. In practical terms, this means
+    /// the function returns the size in bytes of the [`VersionOf<Self>`] for the specified [`Version`].
+    /// 
+    /// For more information on what this means in-depth, see the Safety section in the documentation
+    /// of [`VersionOf`].
+    fn probe_metadata(version: Version) -> Result<ProbeMetadata, crate::Error>;
 }
 
-/// A specific concrete version of an [`Evolving`] type.
+/// Implemented by a specific concrete version of an [`Evolving`] type `E`.
 /// 
 /// # Safety
 /// 
-/// - It must be valid to construct an [`E::Probe`][Evolving::Probe] with a pointer to a `Self`
-/// and the metadata returned by [`E::probe_metadata(Self::VERSION)`][Evolving::probe_metadata].
-/// - For some `E`, all [`VersionOf<E>`] must have an alignment >= the version that came before it
-/// - TODO: describe the actual requirements here
+/// Implementing this trait means that it must be valid to construct
+/// (via [`ptr_meta::from_raw_parts`]) a [`Self::ProbedBy`] [Probe][ProbeOf] with a data pointer to a `Self`
+/// and the metadata returned by [`E::probe_metadata(Self::VERSION)`]. This implies
+/// the following requirements, as well as the ones discussed in the
+/// documentation for both [`ptr_meta::Pointee`] and [`ptr_meta::from_raw_parts`]:
+/// 
+/// - For some `E`, all [`VersionOf<E>`] within the same **major version** must have exactly the same
+/// memory layout as the previous version until the end of the previous version's size. In plain speak
+/// this means each version must only add new fields after the end of the previous version, and never change
+/// the layout of fields that has already been used in a previous version. This also implies the following:
+///     - All [`VersionOf<E>`] within the same **major version** must have size > (not >=) the version that came
+/// before it (each version's size must be [*monotonically increasing*])
+///     - All [`VersionOf<E>`] within the same **major version** must have an alignment >= the version that came before it
+///     - `Self` must have no padding after its final field, i.e. the end of the memory that the final field
+/// occupies must also be the end of the whole struct.
+/// 
+/// [`Self::ProbedBy`]: VersionOf::ProbedBy
+/// [`E::probe_metadata(Self::VERSION)`]: Evolving::probe_metadata
+/// [`ptr_meta` documentation]: ptr_meta::
+/// [*monotonically increasing*]: https://mathworld.wolfram.com/MonotoneIncreasing.html
 pub unsafe trait VersionOf<E: Evolving + ?Sized> {
-    /// The Probe type that can probe this version of `E`
+    /// The [`ProbeOf<E>`] type that is able to probe this version of `E` (this will be the same
+    /// for all [`VersionOf<E>`] with the same major version)
     type ProbedBy: ProbeOf<E> + ?Sized;
 
+    /// The version number of `E` for which `Self` is the concrete definition
     const VERSION: Version;
 }
 
-/// A probe for a specific major version of an [`Evolving`] type.
+/// All probe types must have this as their [`<Self as Pointee>::Metadata`][Pointee::Metadata]
+pub type ProbeMetadata = <[u8] as Pointee>::Metadata;
+
+/// Implemented by a concrete [Probe][ProbeOf] for a specific *major version* of an [`Evolving`] type.
+/// 
+/// "[Probe][ProbeOf]" types are able to "poke at" or "[probe][ProbeOf::probe_as]" binary data
+/// which contains an **unknown** *minor version* within some known *major version* of an [`Evolving`]
+/// type in order to determine which actual version it contains. Probes will often use this ability to
+/// also implement helper accessor methods that attempt to access each individual field contained in
+/// any (known) minor version of that type.
 /// 
 /// # Safety
 /// 
@@ -142,7 +195,7 @@ pub unsafe trait VersionOf<E: Evolving + ?Sized> {
 pub unsafe trait ProbeOf<E>
 where
     E: Evolving + ?Sized,
-    Self: Pointee<Metadata = <AnyProbe<E> as Pointee>::Metadata>,
+    Self: Pointee<Metadata = ProbeMetadata>,
 {
     /// The major version of `E` that `Self` probes
     const PROBES_MAJOR_VERSION: u16;
@@ -152,5 +205,48 @@ where
     /// Returns `Some(&V)` if `self` is a >= minor version and `None` if `self` is an earlier minor version.
     fn probe_as<V: VersionOf<E, ProbedBy = Self>>(&self) -> Option<&V>;
 
+    /// Assumes `self` is the given [`VersionOf<E>`] and casts self as that version.
+    /// 
+    /// # Safety
+    /// 
+    /// This probe must have been created with data that is binary-compatible with the given
+    /// version: it must be the same major version as [`Self::PROBES_MAJOR_VERSION`][ProbeOf::PROBES_MAJOR_VERSION]
+    /// and an equal or later minor version.
     unsafe fn as_version_unchecked<V: VersionOf<E, ProbedBy = Self>>(&self) -> &V;
+}
+
+/// This is a trait that all [Probe][ProbeOf] types as well as [`AnyProbe`] can implement
+/// which provides raw, unsafe helper interfaces.
+/// 
+/// Implementing this trait is not unsafe in and of itself, but using the
+/// [`as_probe_unchecked`][RawProbe::as_probe_unchecked] method is extremely unsafe.
+/// 
+/// It's unlikely you want to work with this trait directly, but is used internally in the implementation
+/// of [`ArchivedEvolution`], which you can then work with safely.
+pub trait RawProbe<E>
+where
+    E: Evolving + ?Sized,
+    Self: Pointee<Metadata = ProbeMetadata>,
+{
+    /// Unsafely "casts" `Self` as a concrete [Probe][ProbeOf] type.
+    /// 
+    /// # Safety
+    /// 
+    /// This method is extremely unsafe because it allows you to construct a `P`,
+    /// which then has safe interfaces with very particular requirements.
+    /// 
+    /// In order for this to be valid, `Self` must have originally been a valid `P`,
+    /// meaning a `P` backed by a [`VersionOf<E>`] that can be [`ProbedBy`][VersionOf::ProbedBy] `P`:
+    /// 
+    /// Specifically, `self` must have been created from properly aligned memory of the correct size, and
+    /// [`ptr_meta::metadata(self)`] must give valid [`Pointee::Metadata`] for a `P` created from a data
+    /// pointer to `self` and that metadata using [`ptr_meta::from_raw_parts`].
+    unsafe fn as_probe_unchecked<P: ProbeOf<E> + ?Sized>(&self) -> &P {
+        unsafe {
+            &*::ptr_meta::from_raw_parts(
+                (self as *const Self).cast(),
+                ptr_meta::metadata(self),
+            )
+        }
+    }
 }
