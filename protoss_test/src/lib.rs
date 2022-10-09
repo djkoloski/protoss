@@ -431,24 +431,25 @@ mod tests {
             b: 2,
             c: 3,
         };
-        let v1_pylon: Pylon<v1::Test> = Pylon::new(TestV0_1::from(v1));
+        let v1_pylon: Pylon<v1::Test> = Pylon::new(TestV0_1::from(v1)).unwrap();
 
         let probe_v1 = v1_pylon.into_boxed_probe();
 
         assert_eq!(probe_v1.probe_as::<TestV0_0>(), Some(&TestV0_0 { a: 1, b: 2, _pad0: pad() }));
+        assert_eq!(probe_v1.probe_as::<TestV0_1>(), Some(&TestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
         assert_eq!(probe_v1.a(), &1);
         assert_eq!(probe_v1.b(), &2);
         assert_eq!(probe_v1.c(), Some(&3));
     }
 
     #[test]
-    fn basic_evolution() {
+    fn basic_evolution_minor() {
         let v1 = v1::Test {
             a: 1,
             b: 2,
             c: 3,
         };
-        let v1_pylon: Pylon<v1::Test> = Pylon::new(TestV0_1::from(v1));
+        let v1_pylon: Pylon<v1::Test> = Pylon::new(TestV0_1::from(v1)).unwrap();
 
         let v1_probe = v1_pylon.into_boxed_probe();
 
@@ -458,19 +459,24 @@ mod tests {
             c: 7,
             d: 8,
         };
-        let v2_pylon: Pylon<v2::Test> = Pylon::new(TestV0_2::from(v2));
+        let v2_pylon: Pylon<v2::Test> = Pylon::new(TestV0_2::from(v2)).unwrap();
 
         let v2_probe = v2_pylon.into_boxed_probe();
 
-        let v1_from_v2 = unsafe { core::mem::transmute::<&v2::TestProbe, &v1::TestProbe>(&v2_probe) };
+        let v1_from_v2 = unsafe { core::mem::transmute::<&v2::TestProbeV0, &v1::TestProbeV0>(&v2_probe) };
 
+        assert_eq!(v1_from_v2.probe_as::<TestV0_0>(), Some(&TestV0_0 { a: 5, b: 6, _pad0: pad() }));
         assert_eq!(v1_from_v2.probe_as::<TestV0_1>(), Some(&TestV0_1 { a: 5, b: 6, _pad0: pad(), c: 7, _pad1: pad() }));
 
-        let v2_from_v1 = unsafe { core::mem::transmute::<&v1::TestProbe, &v2::TestProbe>(&v1_probe) };
+        let v2_from_v1 = unsafe { core::mem::transmute::<&v1::TestProbeV0, &v2::TestProbeV0>(&v1_probe) };
 
+        assert_eq!(v2_from_v1.probe_as::<TestV0_0>(), Some(&TestV0_0 { a: 1, b: 2, _pad0: pad() }));
+        assert_eq!(v2_from_v1.probe_as::<TestV0_1>(), Some(&TestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
         assert_eq!(v2_from_v1.probe_as::<TestV0_2>(), None);
         assert_eq!(v2_from_v1.a(), &1);
+        assert_eq!(v2_from_v1.b(), &2);
         assert_eq!(v2_from_v1.c(), Some(&3));
+        assert_eq!(v2_from_v1.d(), None);
     }
 
 

@@ -49,21 +49,27 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-// mod pylon;
+mod pylon;
 mod rkyv;
 
 use core::fmt;
 
 use ::ptr_meta::Pointee;
 pub use crate::rkyv::*;
-// pub use pylon::*;
+pub use pylon::*;
 // pub use protoss_derive::protoss;
 
 /// A common error type for all errors that could occur in `protoss`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
     /// Tried to get [Probe][ProbeOf] metadata for a non-existent version of an [`Evolving`] type.
-    TriedToGetProbeMetadataForNonExistentVersion
+    TriedToGetProbeMetadataForNonExistentVersion,
+    /// Tried to create a [`Pylon<E, StorageV>`] by a [`VersionOf<E>`] that is from a
+    /// different **major version** than the pylon's `StorageV`.
+    CreatePylonWithUnmatchedMajorVersions,
+    /// Tried to create a [`Pylon<E, StorageV>`] by a [`VersionOf<E>`] that has a newer (larger)
+    /// **minor version** than the pylon's `StorageV`.
+    CreatePylonWithNewerMinorVersionThanStorage,
 }
 
 impl fmt::Display for Error {
@@ -71,6 +77,12 @@ impl fmt::Display for Error {
         match self {
             Self::TriedToGetProbeMetadataForNonExistentVersion => {
                 write!(f, "tried to get probe metadata for a non-existent version of an Evolving type")
+            }
+            Self::CreatePylonWithUnmatchedMajorVersions => {
+                write!(f, "tried to create a Pylon<E, StorageV> from a version of E that has different major version than StorageV")
+            }
+            Self::CreatePylonWithNewerMinorVersionThanStorage => {
+                write!(f, "tried to create a Pylon<E, StorageV> from a version of E that has newer minor version than StorageV")
             }
         }
     }
