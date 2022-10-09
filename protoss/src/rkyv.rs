@@ -77,10 +77,16 @@ impl<E: Evolving + ?Sized> ArchivePointee for AnyProbe<E> {
 }
 
 /// The archived version of some [`Evolving`] type `E`, containing the data for *some version* of that
-/// `E`.
+/// `E` as well as a version descriptor of which version is contained.
 /// 
 /// We can attempt to downcast into a concrete [`ProbeOf<E>`], i.e. a [Probe][ProbeOf] for some specific
-/// **major version** of `E`, or a specific [`VersionOf<E>`] directly.
+/// **major version** of `E`, or a specific [`VersionOf<E>`] directly, and upon success, access the data
+/// contained inside in a zero-copy fashion.
+/// 
+/// If the accessed data has an outdated major version, you can still fully [deserialize][::rkyv::Deserialize]
+/// it as the latest major version through upgrade functions, though of course this will no longer be zero-copy.**
+/// 
+/// \*\* TODO: this is not actually implemented yet.
 /// 
 /// # Safety
 /// 

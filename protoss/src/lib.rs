@@ -131,6 +131,13 @@ impl Version {
 /// contains an **unknown** *minor version* within some known *major version* of an `Self`.
 /// Through "probing", we are able to determine which actual [version][`VersionOf`] it contains,
 /// and therefore access it as the specific [version of `Self`][`VersionOf`] we have determined it to be.
+/// 
+/// [`Evolving`] types may be [serialized][::rkyv::Serialize] into an [`ArchivedEvolution`], which may hold *any* version of that type,
+/// along with its version. When accessing it as an [`rkyv::Archive`][::rkyv::Archive]d type (i.e. zero-copy), you can then
+/// attempt to downcast it to a desired major version's [Probe][ProbeOf] type which can then be used to get the
+/// fully-compatible behavior of minor versions in a zero-copy fashion. If the accessed data has an outdated major version,
+/// you can still fully [deserialize][::rkyv::Deserialize] it as the latest major version through upgrade functions,
+/// though of course this will no longer be zero-copy. See the docs of [`ArchivedEvolution`] for more.
 ///
 /// # Safety
 ///
@@ -259,6 +266,27 @@ where
                 (self as *const Self).cast(),
                 ptr_meta::metadata(self),
             )
+        }
+    }
+
+    /// Cast a boxed version of `Self` into a `Box<AnyProbe<E>>`.
+    /// 
+    /// This is safe because the [`Pointee::Metadata`] for both is the same and
+    /// you can't actually do anything (safely) with a `Box<AnyProbe<E>>` besides `Drop` it,
+    /// and since it's still a `Box`, it will then deallocate the memory properly so long
+    /// as it was allocated properly in the first place.
+    fn as_boxed_any_probe(self: Box<Self>) -> Box<AnyProbe<E>> {
+        let ptr = Box::into_raw(self);
+        // SAFETY: 
+        // This is safe because the [`Pointee::Metadata`] for both is the same and
+        // you can't actually do anything (safely) with a `Box<AnyProbe<E>>` besides `Drop` it,
+        // and since it's still a `Box`, it will then deallocate the memory properly so long
+        // as it was allocated properly in the first place.
+        unsafe {
+            Box::from_raw(ptr_meta::from_raw_parts_mut(
+                ptr.cast(),
+                ptr_meta::metadata(ptr)
+            ))
         }
     }
 }
