@@ -3,7 +3,7 @@ mod rkyv;
 
 #[derive(Debug, PartialEq)]
 #[repr(C)]
-pub struct TestV0_0 {
+pub struct ArchivedTestV0_0 {
     a: u32,
     b: u8,
     _pad0: [u8; 3],
@@ -11,7 +11,7 @@ pub struct TestV0_0 {
 
 #[derive(Debug, PartialEq)]
 #[repr(C)]
-pub struct TestV0_1 {
+pub struct ArchivedTestV0_1 {
     a: u32,
     b: u8,
     _pad0: [u8; 3],
@@ -21,7 +21,7 @@ pub struct TestV0_1 {
 
 #[derive(Debug, PartialEq)]
 #[repr(C)]
-pub struct TestV0_2 {
+pub struct ArchivedTestV0_2 {
     a: u32,
     b: u8,
     _pad0: [u8; 3],
@@ -33,7 +33,7 @@ pub struct TestV0_2 {
 
 #[derive(Debug, PartialEq)]
 #[repr(C)]
-pub struct TestV1_0 {
+pub struct ArchivedTestV1_0 {
     a: u32,
     b: u32,
 }
@@ -42,18 +42,23 @@ mod v1 {
     use protoss::{VersionOf, Evolving, AnyProbe, ProbeOf, Version};
     use ptr_meta::Pointee;
 
-    use super::{TestV0_0, TestV0_1};
+    use super::{ArchivedTestV0_0, ArchivedTestV0_1};
 
+    // #[derive(Evolving)]
+    // #[evolving(current_version = 0.1)]
     pub struct Test {
+        //#[field(id = 0, since_minor_version = 0)]
         pub a: u32,
+        //#[field(id = 1, since_minor_version = 0)]
         pub b: u8,
+        //#[field(id = 2, since_minor_version = 1)]
         pub c: u32,
     }
 
     // imagine this as Serialize
-    impl From<Test> for TestV0_1 {
+    impl From<Test> for ArchivedTestV0_1 {
         fn from(Test { a, b, c}: Test) -> Self {
-            TestV0_1 {
+            ArchivedTestV0_1 {
                 a,
                 b,
                 c,
@@ -65,33 +70,33 @@ mod v1 {
 
     #[derive(Pointee)]
     #[repr(transparent)]
-    pub struct TestProbeV0 {
+    pub struct TestProbeMajor0 {
         data: [u8]
     }
 
     unsafe impl Evolving for Test {
-        type LatestProbe = TestProbeV0;
-        type LatestVersion = TestV0_1;
+        type LatestProbe = TestProbeMajor0;
+        type LatestVersion = ArchivedTestV0_1;
         fn probe_metadata(version: Version) -> Result<<AnyProbe<Test> as Pointee>::Metadata, protoss::Error> {
             use core::mem::size_of;
             match version.major_minor() {
-                (0, 0) => Ok(size_of::<TestV0_0>()),
-                (0, 1) => Ok(size_of::<TestV0_1>()),
+                (0, 0) => Ok(size_of::<ArchivedTestV0_0>()),
+                (0, 1) => Ok(size_of::<ArchivedTestV0_1>()),
                 _ => Err(protoss::Error::TriedToGetProbeMetadataForNonExistentVersion)
             }
         }
     }
 
-    unsafe impl VersionOf<Test> for TestV0_0 {
-        type ProbedBy = TestProbeV0;
+    unsafe impl VersionOf<Test> for ArchivedTestV0_0 {
+        type ProbedBy = TestProbeMajor0;
         const VERSION: Version = Version::new(0, 0);
     }
-    unsafe impl VersionOf<Test> for TestV0_1 {
-        type ProbedBy = TestProbeV0;
+    unsafe impl VersionOf<Test> for ArchivedTestV0_1 {
+        type ProbedBy = TestProbeMajor0;
         const VERSION: Version = Version::new(0, 1);
     }
 
-    unsafe impl ProbeOf<Test> for TestProbeV0 {
+    unsafe impl ProbeOf<Test> for TestProbeMajor0 {
         const PROBES_MAJOR_VERSION: u16 = 0;
 
         #[inline(always)]
@@ -111,23 +116,23 @@ mod v1 {
         }
     }
 
-    impl TestProbeV0 {
+    impl TestProbeMajor0 {
         pub fn probe_as<V: VersionOf<Test, ProbedBy = Self>>(&self) -> Option<&V> {
             <Self as ProbeOf<Test>>::probe_as(self)
         }
 
         pub fn a(&self) -> &u32 {
-            let v0 = unsafe { self.as_version_unchecked::<TestV0_0>() };
+            let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
             &v0.a
         }
 
         pub fn b(&self) -> &u8 {
-            let v0 = unsafe { self.as_version_unchecked::<TestV0_0>() };
+            let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
             &v0.b
         }
 
         pub fn c(&self) -> Option<&u32> {
-            if let Some(v1) = self.probe_as::<TestV0_1>() {
+            if let Some(v1) = self.probe_as::<ArchivedTestV0_1>() {
                 Some(&v1.c)
             } else {
                 None
@@ -140,19 +145,25 @@ mod v2 {
     use protoss::{VersionOf, Evolving, Version, ProbeOf, AnyProbe};
     use ptr_meta::Pointee;
 
-    use super::{TestV0_0, TestV0_1, TestV0_2};
+    use super::{ArchivedTestV0_0, ArchivedTestV0_1, ArchivedTestV0_2};
 
+    // #[derive(Evolving)]
+    // #[evolving(current_version = 0.2)]
     pub struct Test {
+        //#[field(id = 0, since_minor_version = 0)]
         pub a: u32,
+        //#[field(id = 1, since_minor_version = 0)]
         pub b: u8,
+        //#[field(id = 2, since_minor_version = 1)]
         pub c: u32,
+        //#[field(id = 3, since_minor_version = 2)]
         pub d: u8,
     }
 
     // imagine this as Serialize
-    impl From<Test> for TestV0_2 {
+    impl From<Test> for ArchivedTestV0_2 {
         fn from(Test { a, b, c, d }: Test) -> Self {
-            TestV0_2 {
+            ArchivedTestV0_2 {
                 a,
                 b,
                 c,
@@ -166,38 +177,38 @@ mod v2 {
 
     #[derive(Pointee)]
     #[repr(transparent)]
-    pub struct TestProbeV0 {
+    pub struct TestProbeMajor0 {
         data: [u8]
     }
 
     unsafe impl Evolving for Test {
-        type LatestProbe = TestProbeV0;
-        type LatestVersion = TestV0_2;
+        type LatestProbe = TestProbeMajor0;
+        type LatestVersion = ArchivedTestV0_2;
         fn probe_metadata(version: Version) -> Result<<AnyProbe<Test> as Pointee>::Metadata, protoss::Error> {
             use core::mem::size_of;
             match (version.major, version.minor) {
-                (0, 0) => Ok(size_of::<TestV0_0>()),
-                (0, 1) => Ok(size_of::<TestV0_1>()),
-                (0, 2) => Ok(size_of::<TestV0_2>()),
+                (0, 0) => Ok(size_of::<ArchivedTestV0_0>()),
+                (0, 1) => Ok(size_of::<ArchivedTestV0_1>()),
+                (0, 2) => Ok(size_of::<ArchivedTestV0_2>()),
                 _ => Err(protoss::Error::TriedToGetProbeMetadataForNonExistentVersion)
             }
         }
     }
 
-    unsafe impl VersionOf<Test> for TestV0_0 {
-        type ProbedBy = TestProbeV0;
+    unsafe impl VersionOf<Test> for ArchivedTestV0_0 {
+        type ProbedBy = TestProbeMajor0;
         const VERSION: Version = Version::new(0, 0);
     }
-    unsafe impl VersionOf<Test> for TestV0_1 {
-        type ProbedBy = TestProbeV0;
+    unsafe impl VersionOf<Test> for ArchivedTestV0_1 {
+        type ProbedBy = TestProbeMajor0;
         const VERSION: Version = Version::new(0, 1);
     }
-    unsafe impl VersionOf<Test> for TestV0_2 {
-        type ProbedBy = TestProbeV0;
+    unsafe impl VersionOf<Test> for ArchivedTestV0_2 {
+        type ProbedBy = TestProbeMajor0;
         const VERSION: Version = Version::new(0, 2);
     }
 
-    unsafe impl ProbeOf<Test> for TestProbeV0 {
+    unsafe impl ProbeOf<Test> for TestProbeMajor0 {
         const PROBES_MAJOR_VERSION: u16 = 0;
 
         #[inline(always)]
@@ -217,23 +228,23 @@ mod v2 {
         }
     }
 
-    impl TestProbeV0 {
+    impl TestProbeMajor0 {
         pub fn probe_as<V: VersionOf<Test, ProbedBy = Self>>(&self) -> Option<&V> {
             <Self as ProbeOf<Test>>::probe_as(self)
         }
 
         pub fn a(&self) -> &u32 {
-            let v0 = unsafe { self.as_version_unchecked::<TestV0_0>() };
+            let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
             &v0.a
         }
 
         pub fn b(&self) -> &u8 {
-            let v0 = unsafe { self.as_version_unchecked::<TestV0_0>() };
+            let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
             &v0.b
         }
 
         pub fn c(&self) -> Option<&u32> {
-            if let Some(v1) = self.probe_as::<TestV0_1>() {
+            if let Some(v1) = self.probe_as::<ArchivedTestV0_1>() {
                 Some(&v1.c)
             } else {
                 None
@@ -241,7 +252,7 @@ mod v2 {
         }
 
         pub fn d(&self) -> Option<&u8> {
-            if let Some(v2) = self.probe_as::<TestV0_2>() {
+            if let Some(v2) = self.probe_as::<ArchivedTestV0_2>() {
                 Some(&v2.d)
             } else {
                 None
@@ -254,17 +265,41 @@ mod v3 {
     use protoss::{VersionOf, Evolving, Version, ProbeOf, AnyProbe};
     use ptr_meta::Pointee;
 
-    use super::{TestV0_0, TestV0_1, TestV0_2, TestV1_0};
+    use super::{ArchivedTestV0_0, ArchivedTestV0_1, ArchivedTestV0_2, ArchivedTestV1_0};
 
+    // #[derive(Evolving)]
+    // #[evolving(current_version = 1.0)]
+    // #[evolving(previous_major_version(major = 0, definition = TestMajor0))]
     pub struct Test {
+        //#[field(id = 0, since_minor_version = 0)]
         pub a: u32,
+        //#[field(id = 1, since_minor_version = 0)]
         pub b: u32,
     }
 
+    // trait DefEvolutionOfTest {
+    //     fn upgrade_major_0_to_major_1(major_0: &TestProbeMajor0) -> ArchivedTestV1_0;
+    // }
+
+    // #[protoss::legacy_evolution_definition(
+    //     of = Test,
+    //     major = 0,
+    // )]
+    // pub struct TestMajor0 {
+    //     //#[field(id = 0, since_minor_version = 0)]
+    //     pub a: u32,
+    //     //#[field(id = 1, since_minor_version = 0)]
+    //     pub b: u8,
+    //     //#[field(id = 2, since_minor_version = 1)]
+    //     pub c: u32,
+    //     //#[field(id = 3, since_minor_version = 2)]
+    //     pub d: u8,
+    // }
+
     // imagine this as Serialize
-    impl From<Test> for TestV1_0 {
+    impl From<Test> for ArchivedTestV1_0 {
         fn from(Test { a, b }: Test) -> Self {
-            TestV1_0 {
+            ArchivedTestV1_0 {
                 a,
                 b,
             }
@@ -273,49 +308,49 @@ mod v3 {
 
     #[derive(Pointee)]
     #[repr(transparent)]
-    pub struct TestProbeV0 {
+    pub struct TestProbeMajor0 {
         data: [u8]
     }
 
     #[derive(Pointee)]
     #[repr(transparent)]
-    pub struct TestProbeV1 {
+    pub struct TestProbeMajor1 {
         data: [u8]
     }
 
     unsafe impl Evolving for Test {
-        type LatestProbe = TestProbeV1;
-        type LatestVersion = TestV1_0;
+        type LatestProbe = TestProbeMajor1;
+        type LatestVersion = ArchivedTestV1_0;
         fn probe_metadata(version: Version) -> Result<<AnyProbe<Test> as Pointee>::Metadata, protoss::Error> {
             use core::mem::size_of;
             match (version.major, version.minor) {
-                (0, 0) => Ok(size_of::<TestV0_0>()),
-                (0, 1) => Ok(size_of::<TestV0_1>()),
-                (0, 2) => Ok(size_of::<TestV0_2>()),
-                (1, 0) => Ok(size_of::<TestV1_0>()),
+                (0, 0) => Ok(size_of::<ArchivedTestV0_0>()),
+                (0, 1) => Ok(size_of::<ArchivedTestV0_1>()),
+                (0, 2) => Ok(size_of::<ArchivedTestV0_2>()),
+                (1, 0) => Ok(size_of::<ArchivedTestV1_0>()),
                 _ => Err(protoss::Error::TriedToGetProbeMetadataForNonExistentVersion)
             }
         }
     }
 
-    unsafe impl VersionOf<Test> for TestV0_0 {
-        type ProbedBy = TestProbeV0;
+    unsafe impl VersionOf<Test> for ArchivedTestV0_0 {
+        type ProbedBy = TestProbeMajor0;
         const VERSION: Version = Version::new(0, 0);
     }
-    unsafe impl VersionOf<Test> for TestV0_1 {
-        type ProbedBy = TestProbeV0;
+    unsafe impl VersionOf<Test> for ArchivedTestV0_1 {
+        type ProbedBy = TestProbeMajor0;
         const VERSION: Version = Version::new(0, 1);
     }
-    unsafe impl VersionOf<Test> for TestV0_2 {
-        type ProbedBy = TestProbeV0;
+    unsafe impl VersionOf<Test> for ArchivedTestV0_2 {
+        type ProbedBy = TestProbeMajor0;
         const VERSION: Version = Version::new(0, 2);
     }
-    unsafe impl VersionOf<Test> for TestV1_0 {
-        type ProbedBy = TestProbeV1;
+    unsafe impl VersionOf<Test> for ArchivedTestV1_0 {
+        type ProbedBy = TestProbeMajor1;
         const VERSION: Version = Version::new(1, 0);
     }
 
-    unsafe impl ProbeOf<Test> for TestProbeV0 {
+    unsafe impl ProbeOf<Test> for TestProbeMajor0 {
         const PROBES_MAJOR_VERSION: u16 = 0;
 
         #[inline(always)]
@@ -335,7 +370,7 @@ mod v3 {
         }
     }
 
-    impl TestProbeV0 {
+    impl TestProbeMajor0 {
         pub fn probe_as<V: VersionOf<Test, ProbedBy = Self>>(&self) -> Option<&V> {
             <Self as ProbeOf<Test>>::probe_as(self)
         }
@@ -346,17 +381,17 @@ mod v3 {
         }
 
         pub fn a(&self) -> &u32 {
-            let v0 = unsafe { self.as_version_unchecked::<TestV0_0>() };
+            let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
             &v0.a
         }
 
         pub fn b(&self) -> &u8 {
-            let v0 = unsafe { self.as_version_unchecked::<TestV0_0>() };
+            let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
             &v0.b
         }
 
         pub fn c(&self) -> Option<&u32> {
-            if let Some(v1) = self.probe_as::<TestV0_1>() {
+            if let Some(v1) = self.probe_as::<ArchivedTestV0_1>() {
                 Some(&v1.c)
             } else {
                 None
@@ -364,7 +399,7 @@ mod v3 {
         }
 
         pub fn d(&self) -> Option<&u8> {
-            if let Some(v2) = self.probe_as::<TestV0_2>() {
+            if let Some(v2) = self.probe_as::<ArchivedTestV0_2>() {
                 Some(&v2.d)
             } else {
                 None
@@ -372,7 +407,7 @@ mod v3 {
         }
     }
 
-    unsafe impl ProbeOf<Test> for TestProbeV1 {
+    unsafe impl ProbeOf<Test> for TestProbeMajor1 {
         const PROBES_MAJOR_VERSION: u16 = 1;
 
         #[inline(always)]
@@ -392,7 +427,7 @@ mod v3 {
         }
     }
 
-    impl TestProbeV1 {
+    impl TestProbeMajor1 {
         pub fn probe_as<V: VersionOf<Test, ProbedBy = Self>>(&self) -> Option<&V> {
             <Self as ProbeOf<Test>>::probe_as(self)
         }
@@ -403,12 +438,12 @@ mod v3 {
         }
 
         pub fn a(&self) -> &u32 {
-            let v0 = unsafe { self.as_version_unchecked::<TestV1_0>() };
+            let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV1_0>() };
             &v0.a
         }
 
         pub fn b(&self) -> &u32 {
-            let v0 = unsafe { self.as_version_unchecked::<TestV1_0>() };
+            let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV1_0>() };
             &v0.b
         }
     }
@@ -431,12 +466,12 @@ mod tests {
             b: 2,
             c: 3,
         };
-        let v1_pylon: Pylon<v1::Test> = Pylon::new(TestV0_1::from(v1)).unwrap();
+        let v1_pylon: Pylon<v1::Test> = Pylon::new(ArchivedTestV0_1::from(v1)).unwrap();
 
         let probe_v1 = v1_pylon.into_boxed_probe();
 
-        assert_eq!(probe_v1.probe_as::<TestV0_0>(), Some(&TestV0_0 { a: 1, b: 2, _pad0: pad() }));
-        assert_eq!(probe_v1.probe_as::<TestV0_1>(), Some(&TestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
+        assert_eq!(probe_v1.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 1, b: 2, _pad0: pad() }));
+        assert_eq!(probe_v1.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
         assert_eq!(probe_v1.a(), &1);
         assert_eq!(probe_v1.b(), &2);
         assert_eq!(probe_v1.c(), Some(&3));
@@ -449,7 +484,7 @@ mod tests {
             b: 2,
             c: 3,
         };
-        let v1_pylon: Pylon<v1::Test> = Pylon::new(TestV0_1::from(v1)).unwrap();
+        let v1_pylon: Pylon<v1::Test> = Pylon::new(ArchivedTestV0_1::from(v1)).unwrap();
 
         let v1_probe = v1_pylon.into_boxed_probe();
 
@@ -459,20 +494,20 @@ mod tests {
             c: 7,
             d: 8,
         };
-        let v2_pylon: Pylon<v2::Test> = Pylon::new(TestV0_2::from(v2)).unwrap();
+        let v2_pylon: Pylon<v2::Test> = Pylon::new(ArchivedTestV0_2::from(v2)).unwrap();
 
         let v2_probe = v2_pylon.into_boxed_probe();
 
-        let v1_from_v2 = unsafe { core::mem::transmute::<&v2::TestProbeV0, &v1::TestProbeV0>(&v2_probe) };
+        let v1_from_v2 = unsafe { core::mem::transmute::<&v2::TestProbeMajor0, &v1::TestProbeMajor0>(&v2_probe) };
 
-        assert_eq!(v1_from_v2.probe_as::<TestV0_0>(), Some(&TestV0_0 { a: 5, b: 6, _pad0: pad() }));
-        assert_eq!(v1_from_v2.probe_as::<TestV0_1>(), Some(&TestV0_1 { a: 5, b: 6, _pad0: pad(), c: 7, _pad1: pad() }));
+        assert_eq!(v1_from_v2.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 5, b: 6, _pad0: pad() }));
+        assert_eq!(v1_from_v2.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 5, b: 6, _pad0: pad(), c: 7, _pad1: pad() }));
 
-        let v2_from_v1 = unsafe { core::mem::transmute::<&v1::TestProbeV0, &v2::TestProbeV0>(&v1_probe) };
+        let v2_from_v1 = unsafe { core::mem::transmute::<&v1::TestProbeMajor0, &v2::TestProbeMajor0>(&v1_probe) };
 
-        assert_eq!(v2_from_v1.probe_as::<TestV0_0>(), Some(&TestV0_0 { a: 1, b: 2, _pad0: pad() }));
-        assert_eq!(v2_from_v1.probe_as::<TestV0_1>(), Some(&TestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
-        assert_eq!(v2_from_v1.probe_as::<TestV0_2>(), None);
+        assert_eq!(v2_from_v1.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 1, b: 2, _pad0: pad() }));
+        assert_eq!(v2_from_v1.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
+        assert_eq!(v2_from_v1.probe_as::<ArchivedTestV0_2>(), None);
         assert_eq!(v2_from_v1.a(), &1);
         assert_eq!(v2_from_v1.b(), &2);
         assert_eq!(v2_from_v1.c(), Some(&3));
