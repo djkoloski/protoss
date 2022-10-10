@@ -39,6 +39,9 @@
 //! For more on how this works, see the documentation of the [`Evolving`] trait, which is the centerpiece of the `protoss`
 //! model, for more.
 //! 
+//! Also, see the crate-level documentation of [`protoss_derive`] for info on how this system is intended to be
+//! implemented/used by the end user.
+//! 
 //! [schema evolution]: https://martin.kleppmann.com/2012/12/05/schema-evolution-in-avro-protocol-buffers-thrift.html
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(rustdoc::broken_intra_doc_links)]
