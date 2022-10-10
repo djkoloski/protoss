@@ -269,7 +269,6 @@ mod v3 {
 
     // #[derive(Evolving)]
     // #[evolving(current_version = 1.0)]
-    // #[evolving(previous_major_version(major = 0, definition = TestMajor0))]
     pub struct Test {
         //#[field(id = 0, since_minor_version = 0)]
         pub a: u32,
@@ -281,7 +280,7 @@ mod v3 {
     //     fn upgrade_major_0_to_major_1(major_0: &TestProbeMajor0) -> ArchivedTestV1_0;
     // }
 
-    // #[protoss::legacy_evolution_definition(
+    // #[protoss::previous_evolution_definition(
     //     of = Test,
     //     major = 0,
     // )]
