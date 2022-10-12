@@ -6,4 +6,5 @@ members = [
 ]
 
 [patch.crates-io]
-rkyv = { path = "../rkyv/rkyv" }
+# rkyv = { path = "../rkyv/rkyv" }
+rkyv = { git = "https://github.com/fu5ha/rkyv", rev = "8e558b3e3f4550c54b5eabd49a891c46c85be740"}
