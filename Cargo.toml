@@ -4,3 +4,6 @@ members = [
     "protoss_derive",
     "protoss_test",
 ]
+
+[patch.crates-io]
+rkyv = { path = "../rkyv/rkyv" }

@@ -2,3 +2,4 @@
 Cargo.lock
 .vscode
 /tmp
+**/.DS_STORE

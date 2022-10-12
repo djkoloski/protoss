@@ -1,5 +1,4 @@
-#[cfg(feature = "rkyv")]
-mod rkyv;
+use rkyv::Archived;
 
 #[derive(Debug, PartialEq)]
 #[repr(C)]
@@ -12,30 +11,35 @@ pub struct ArchivedTestV0_0 {
 #[derive(Debug, PartialEq)]
 #[repr(C)]
 pub struct ArchivedTestV0_1 {
-    a: u32,
-    b: u8,
+    a: Archived<u32>,
+    b: Archived<u8>,
     _pad0: [u8; 3],
-    c: u32,
+    c: Archived<u32>,
     _pad1: [u8; 0],
 }
 
 #[derive(Debug, PartialEq)]
 #[repr(C)]
 pub struct ArchivedTestV0_2 {
-    a: u32,
-    b: u8,
+    a: Archived<u32>,
+    b: Archived<u8>,
     _pad0: [u8; 3],
-    c: u32,
+    c: Archived<u32>,
     _pad1: [u8; 0],
-    d: u8,
+    d: Archived<u8>,
     _pad2: [u8; 3],
 }
 
 #[derive(Debug, PartialEq)]
 #[repr(C)]
 pub struct ArchivedTestV1_0 {
-    a: u32,
-    b: u32,
+    a: Archived<u32>,
+    b: Archived<u32>,
+    _pad0: [u8; 0],
+}
+
+const fn pad<const N: usize>() -> [u8; N] {
+    [0u8; N]
 }
 
 mod v1 {
@@ -53,6 +57,44 @@ mod v1 {
         pub b: u8,
         //#[field(id = 2, since_minor_version = 1)]
         pub c: u32,
+    }
+
+    pub struct TestResolver {
+        a: ::rkyv::Resolver<u32>,
+        b: ::rkyv::Resolver<u8>,
+        c: ::rkyv::Resolver<u32>,
+    }
+
+    impl<S: ::rkyv::Fallible + ?Sized> ::rkyv::Serialize<S> for Test
+    where
+        u32: ::rkyv::Serialize<S>,
+        u8: ::rkyv::Serialize<S>,
+    {
+        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, <S as rkyv::Fallible>::Error> {
+            Ok(Self::Resolver {
+                a: self.a.serialize(serializer)?,
+                b: self.b.serialize(serializer)?,
+                c: self.c.serialize(serializer)?,
+            })
+        }
+    }
+
+    impl rkyv::Archive for Test {
+        type Archived = <Self as Evolving>::LatestVersion;
+        type Resolver = TestResolver;
+
+        unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+            let (fp, fo) = ::rkyv::out_field!(out.a);
+            self.a.resolve(pos + fp, resolver.a, fo);
+            let (fp, fo) = ::rkyv::out_field!(out.b);
+            self.b.resolve(pos + fp, resolver.b, fo);
+            let (fp, fo) = ::rkyv::out_field!(out.c);
+            self.c.resolve(pos + fp, resolver.c, fo);
+            let fo = ::core::ptr::addr_of_mut!((*out)._pad0);
+            *fo = core::mem::zeroed();
+            let fo = ::core::ptr::addr_of_mut!((*out)._pad1);
+            *fo = core::mem::zeroed();
+        }
     }
 
     // imagine this as Serialize
@@ -160,6 +202,50 @@ mod v2 {
         pub d: u8,
     }
 
+    pub struct TestResolver {
+        a: ::rkyv::Resolver<u32>,
+        b: ::rkyv::Resolver<u8>,
+        c: ::rkyv::Resolver<u32>,
+        d: ::rkyv::Resolver<u8>,
+    }
+
+    impl<S: ::rkyv::Fallible + ?Sized> ::rkyv::Serialize<S> for Test
+    where
+        u32: ::rkyv::Serialize<S>,
+        u8: ::rkyv::Serialize<S>,
+    {
+        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, <S as rkyv::Fallible>::Error> {
+            Ok(Self::Resolver {
+                a: self.a.serialize(serializer)?,
+                b: self.b.serialize(serializer)?,
+                c: self.c.serialize(serializer)?,
+                d: self.d.serialize(serializer)?,
+            })
+        }
+    }
+
+    impl ::rkyv::Archive for Test {
+        type Archived = <Self as Evolving>::LatestVersion;
+        type Resolver = TestResolver;
+
+        unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+            let (fp, fo) = ::rkyv::out_field!(out.a);
+            self.a.resolve(pos + fp, resolver.a, fo);
+            let (fp, fo) = ::rkyv::out_field!(out.b);
+            self.b.resolve(pos + fp, resolver.b, fo);
+            let (fp, fo) = ::rkyv::out_field!(out.c);
+            self.c.resolve(pos + fp, resolver.c, fo);
+            let (fp, fo) = ::rkyv::out_field!(out.d);
+            self.d.resolve(pos + fp, resolver.d, fo);
+            let fo = ::core::ptr::addr_of_mut!((*out)._pad0);
+            *fo = core::mem::zeroed();
+            let fo = ::core::ptr::addr_of_mut!((*out)._pad1);
+            *fo = core::mem::zeroed();
+            let fo = ::core::ptr::addr_of_mut!((*out)._pad2);
+            *fo = core::mem::zeroed();
+        }
+    }
+
     // imagine this as Serialize
     impl From<Test> for ArchivedTestV0_2 {
         fn from(Test { a, b, c, d }: Test) -> Self {
@@ -265,7 +351,7 @@ mod v3 {
     use protoss::{VersionOf, Evolving, Version, ProbeOf, AnyProbe};
     use ptr_meta::Pointee;
 
-    use super::{ArchivedTestV0_0, ArchivedTestV0_1, ArchivedTestV0_2, ArchivedTestV1_0};
+    use super::{ArchivedTestV0_0, ArchivedTestV0_1, ArchivedTestV0_2, ArchivedTestV1_0, pad};
 
     // #[derive(Evolving)]
     // #[evolving(current_version = 1.0)]
@@ -295,12 +381,44 @@ mod v3 {
     //     pub d: u8,
     // }
 
+    pub struct TestResolver {
+        a: ::rkyv::Resolver<u32>,
+        b: ::rkyv::Resolver<u32>,
+    }
+
+    impl<S: ::rkyv::Fallible + ?Sized> ::rkyv::Serialize<S> for Test
+    where
+        u32: ::rkyv::Serialize<S>,
+    {
+        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, <S as rkyv::Fallible>::Error> {
+            Ok(Self::Resolver {
+                a: self.a.serialize(serializer)?,
+                b: self.b.serialize(serializer)?,
+            })
+        }
+    }
+
+    impl ::rkyv::Archive for Test {
+        type Archived = <Self as Evolving>::LatestVersion;
+        type Resolver = TestResolver;
+
+        unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
+            let (fp, fo) = ::rkyv::out_field!(out.a);
+            self.a.resolve(pos + fp, resolver.a, fo);
+            let (fp, fo) = ::rkyv::out_field!(out.b);
+            self.b.resolve(pos + fp, resolver.b, fo);
+            let fo = ::core::ptr::addr_of_mut!((*out)._pad0);
+            *fo = core::mem::zeroed();
+        }
+    }
+
     // imagine this as Serialize
     impl From<Test> for ArchivedTestV1_0 {
         fn from(Test { a, b }: Test) -> Self {
             ArchivedTestV1_0 {
                 a,
                 b,
+                _pad0: pad(),
             }
         }
     }
@@ -453,10 +571,13 @@ mod tests {
     use super::*;
 
     use protoss::Pylon;
-
-    const fn pad<const N: usize>() -> [u8; N] {
-        [0u8; N]
-    }
+    use protoss::Evolve;
+    use rkyv::AlignedVec;
+    use rkyv::Archive;
+    use rkyv::Serialize;
+    use rkyv::archived_root;
+    use rkyv::ser::Serializer;
+    use rkyv::ser::serializers::AllocSerializer;
 
     #[test]
     fn into_boxed_probe() {
@@ -513,6 +634,130 @@ mod tests {
         assert_eq!(v2_from_v1.d(), None);
     }
 
+    type DefaultSerializer = AllocSerializer<256>;
+
+    #[test]
+    fn basic_archiving() {
+        #[derive(Archive, Serialize)]
+        struct Container {
+            #[with(Evolve)]
+            test: v1::Test,
+        }
+
+        let container = Container {
+            test: v1::Test {
+                a: 1,
+                b: 2,
+                c: 3,
+            }
+        };
+
+        let mut serializer = DefaultSerializer::default();
+        serializer.serialize_value(&container).unwrap();
+        let buf: AlignedVec = serializer.into_serializer().into_inner();
+
+        let archived_container: &ArchivedContainer = unsafe { archived_root::<Container>(&buf) };
+        let archived_test: &protoss::ArchivedEvolution<v1::Test> = &archived_container.test;
+
+        let probe = archived_test.try_as_latest_probe().unwrap();
+
+        assert_eq!(probe.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 1, b: 2, _pad0: pad() }));
+        assert_eq!(probe.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
+        assert_eq!(probe.a(), &1);
+        assert_eq!(probe.b(), &2);
+        assert_eq!(probe.c(), Some(&3));
+    }
+
+    #[test]
+    fn basic_archived_backwards_compat_minor() {
+        #[derive(Archive, Serialize)]
+        struct ContainerV1 {
+            #[with(Evolve)]
+            test: v1::Test,
+        }
+
+        #[derive(Archive, Serialize)]
+        struct ContainerV2 {
+            #[with(Evolve)]
+            test: v2::Test,
+        }
+
+        let container_v1 = ContainerV1 {
+            test: v1::Test {
+                a: 1,
+                b: 2,
+                c: 3,
+            }
+        };
+
+        // producer is on v1, serializes a v1
+        let mut serializer = DefaultSerializer::default();
+        serializer.serialize_value(&container_v1).unwrap();
+        let buf: AlignedVec = serializer.into_serializer().into_inner();
+
+
+        // consumer is on v2, accesses v1 archive as v2
+        let archived_container: &Archived<ContainerV2> = unsafe { archived_root::<ContainerV2>(&buf) };
+        let archived_test: &protoss::ArchivedEvolution<v2::Test> = &archived_container.test;
+
+        // v2 probe from v1 archived data
+        let probe: &v2::TestProbeMajor0 = archived_test.try_as_latest_probe().unwrap();
+
+        assert_eq!(probe.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 1, b: 2, _pad0: pad() }));
+        assert_eq!(probe.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
+        assert_eq!(probe.probe_as::<ArchivedTestV0_2>(), None);
+        assert_eq!(probe.a(), &1);
+        assert_eq!(probe.b(), &2);
+        assert_eq!(probe.c(), Some(&3));
+        assert_eq!(probe.d(), None);
+    }
+
+    #[test]
+    fn basic_archived_forwards_compat_minor() {
+        #[derive(Archive, Serialize)]
+        struct ContainerV1 {
+            #[with(Evolve)]
+            test: v1::Test,
+        }
+
+        #[derive(Archive, Serialize)]
+        struct ContainerV2 {
+            #[with(Evolve)]
+            test: v2::Test,
+        }
+
+        let container_v2 = ContainerV2 {
+            test: v2::Test {
+                a: 5,
+                b: 6,
+                c: 7,
+                d: 8,
+            }
+        };
+
+        // producer is on v2, serializes v2
+        let mut serializer = DefaultSerializer::default();
+        serializer.serialize_value(&container_v2).unwrap();
+        let buf: AlignedVec = serializer.into_serializer().into_inner();
+
+
+        // consumer is on v1, accesses v2-serialized archive as v1
+        let archived_container: &Archived<ContainerV1> = unsafe { archived_root::<ContainerV1>(&buf) };
+        let archived_test: &protoss::ArchivedEvolution<v1::Test> = &archived_container.test;
+
+        // v1 probe from v2 archived data
+        let probe: &v1::TestProbeMajor0 = archived_test.try_as_latest_probe().unwrap();
+
+        assert_eq!(probe.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 5, b: 6, _pad0: pad() }));
+        assert_eq!(probe.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 5, b: 6, _pad0: pad(), c: 7, _pad1: pad() }));
+        // compile fails because v1 doesn't know about V0_2!
+        // assert_eq!(probe.probe_as::<ArchivedTestV0_2>(), Some(&ArchivedTestV0_2 { a: 5, b: 6, _pad0: pad(), c: 7, _pad1: pad(), d: 8, _pad2: pad() }));
+        assert_eq!(probe.a(), &5);
+        assert_eq!(probe.b(), &6);
+        assert_eq!(probe.c(), Some(&7));
+        // compile fails because v1 doesn't know about field d on V0_2!
+        // assert_eq!(probe.d(), Some(&8));
+    }
 
     // #[test]
     // fn check_drop() {

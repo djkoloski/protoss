@@ -58,8 +58,10 @@ mod rkyv;
 use core::fmt;
 
 use ::ptr_meta::Pointee;
-pub use crate::rkyv::*;
-pub use pylon::*;
+pub use crate::rkyv::ArchivedEvolution;
+pub use crate::rkyv::AnyProbe;
+pub use crate::rkyv::Evolve;
+pub use pylon::Pylon;
 // pub use protoss_derive::protoss;
 
 /// A common error type for all errors that could occur in `protoss`.
@@ -90,6 +92,9 @@ impl fmt::Display for Error {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}
 
 /// A version identifier containing a major and minor version.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -190,13 +195,23 @@ pub unsafe trait Evolving {
 /// [`E::probe_metadata(Self::VERSION)`]: Evolving::probe_metadata
 /// [`ptr_meta` documentation]: ptr_meta::
 /// [*monotonically increasing*]: https://mathworld.wolfram.com/MonotoneIncreasing.html
-pub unsafe trait VersionOf<E: Evolving + ?Sized> {
+pub unsafe trait VersionOf<E: Evolving + ?Sized>: Sized {
     /// The [`ProbeOf<E>`] type that is able to probe this version of `E` (this will be the same
     /// for all [`VersionOf<E>`] with the same major version)
     type ProbedBy: ProbeOf<E> + ?Sized;
 
     /// The version number of `E` for which `Self` is the concrete definition
     const VERSION: Version;
+
+    /// Cast `&self` as its [Probe][ProbeOf] type ([`Self::ProbedBy`][VersionOf::ProbedBy]).
+    fn as_probe(&self) -> &Self::ProbedBy {
+        unsafe {
+            &*::ptr_meta::from_raw_parts(
+                (self as *const Self).cast(),
+                core::mem::size_of::<Self>() as ProbeMetadata,
+            )
+        }
+    }
 }
 
 /// All probe types must have this as their [`<Self as Pointee>::Metadata`][Pointee::Metadata]
@@ -235,6 +250,44 @@ where
     /// version: it must be the same major version as [`Self::PROBES_MAJOR_VERSION`][ProbeOf::PROBES_MAJOR_VERSION]
     /// and an equal or later minor version.
     unsafe fn as_version_unchecked<V: VersionOf<E, ProbedBy = Self>>(&self) -> &V;
+
+    /// Cast `&self` into a `&AnyProbe<E>`.
+    /// 
+    /// This is safe because you can't actually do anything (safely) with a `&AnyProbe<E>` and
+    /// the [`Pointee::Metadata`] types are the same and valid between each other.
+    fn as_any_probe(&self) -> &AnyProbe<E> {
+        // SAFETY: This is safe because
+        // - you can't actually do anything (safely) with a `&AnyProbe<E>` an
+        // - the [`Pointee::Metadata`] types are the same and valid between each other
+        // - the alignment requirements of Self are always more strict than `AnyProbe`
+        unsafe {
+            &*::ptr_meta::from_raw_parts(
+                (self as *const Self).cast(),
+                ptr_meta::metadata(self),
+            )
+        }
+    }
+
+    /// Cast a boxed version of `Self` into a `Box<AnyProbe<E>>`.
+    /// 
+    /// This is safe because the [`Pointee::Metadata`] for both is the same and
+    /// you can't actually do anything (safely) with a `Box<AnyProbe<E>>` besides `Drop` it,
+    /// and since it's still a `Box`, it will then deallocate the memory properly so long
+    /// as it was allocated properly in the first place.
+    fn into_boxed_any_probe(self: Box<Self>) -> Box<AnyProbe<E>> {
+        let ptr = Box::into_raw(self);
+        // SAFETY: 
+        // This is safe because the [`Pointee::Metadata`] for both is the same and
+        // you can't actually do anything (safely) with a `Box<AnyProbe<E>>` besides `Drop` it,
+        // and since it's still a `Box`, it will then deallocate the memory properly so long
+        // as it was allocated properly in the first place.
+        unsafe {
+            Box::from_raw(ptr_meta::from_raw_parts_mut(
+                ptr.cast(),
+                ptr_meta::metadata(ptr)
+            ))
+        }
+    }
 }
 
 /// This is a trait that all [Probe][ProbeOf] types as well as [`AnyProbe`] can implement
@@ -269,27 +322,6 @@ where
                 (self as *const Self).cast(),
                 ptr_meta::metadata(self),
             )
-        }
-    }
-
-    /// Cast a boxed version of `Self` into a `Box<AnyProbe<E>>`.
-    /// 
-    /// This is safe because the [`Pointee::Metadata`] for both is the same and
-    /// you can't actually do anything (safely) with a `Box<AnyProbe<E>>` besides `Drop` it,
-    /// and since it's still a `Box`, it will then deallocate the memory properly so long
-    /// as it was allocated properly in the first place.
-    fn as_boxed_any_probe(self: Box<Self>) -> Box<AnyProbe<E>> {
-        let ptr = Box::into_raw(self);
-        // SAFETY: 
-        // This is safe because the [`Pointee::Metadata`] for both is the same and
-        // you can't actually do anything (safely) with a `Box<AnyProbe<E>>` besides `Drop` it,
-        // and since it's still a `Box`, it will then deallocate the memory properly so long
-        // as it was allocated properly in the first place.
-        unsafe {
-            Box::from_raw(ptr_meta::from_raw_parts_mut(
-                ptr.cast(),
-                ptr_meta::metadata(ptr)
-            ))
         }
     }
 }

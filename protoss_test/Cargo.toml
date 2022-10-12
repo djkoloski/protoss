@@ -8,9 +8,8 @@ edition = "2018"
 
 [dependencies]
 memoffset = "0.6"
-protoss = { path = "../protoss" }
+protoss = { path = "../protoss", features = ["rkyv"] }
 ptr_meta = "0.1"
-rkyv = { version = "0.7", optional = true }
+rkyv = { version = "0.7" }
 
 [features]
-# default = ["rkyv"]
