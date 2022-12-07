@@ -6,7 +6,7 @@
 //! 
 //! When an `Evolving` type has only one major version (0), we only need the `#[derive(Evolving)]` macro:
 //! 
-//! ```rust,no_run
+//! ```rust,ignore
 //! #[derive(Evolving)]
 //! #[evolving(major_version = 0)]
 //! #[evolving(minor_version = 1)]
@@ -31,7 +31,7 @@
 //! When an `Evolving` type has more than one major version, we also need to define each major version
 //! separately by linking back to the original using the `#[protoss::previous_evolution_of]` macro:
 //! 
-//! ```rust,no_run
+//! ```rust,ignore
 //! #[derive(Evolving)]
 //! #[evolving(current_major_version = 1)]
 //! #[evolving(current_minor_version = 0)]
@@ -58,7 +58,7 @@
 //! In this case, the `#[derive(Evolving)]` macro would also generate the following trait which the
 //! user will need to implement for `Test`:
 //! 
-//! ```rust,no_run
+//! ```rust,ignore
 //! trait DefEvolutionOfTest {
 //!     fn upgrade_major_0_to_major_1(major_0: &TestProbeMajor0) -> ArchivedTestV1_0;
 //! }

@@ -52,8 +52,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-mod pylon;
-mod rkyv;
+pub mod pylon;
+pub mod rkyv;
+mod test_util;
 
 use core::fmt;
 
@@ -61,7 +62,7 @@ use ::ptr_meta::Pointee;
 pub use crate::rkyv::ArchivedEvolution;
 pub use crate::rkyv::AnyProbe;
 pub use crate::rkyv::Evolve;
-pub use pylon::Pylon;
+// pub use pylon::Pylon;
 // pub use protoss_derive::protoss;
 
 /// A common error type for all errors that could occur in `protoss`.
@@ -75,6 +76,9 @@ pub enum Error {
     /// Tried to create a [`Pylon<E, StorageV>`] by a [`VersionOf<E>`] that has a newer (larger)
     /// **minor version** than the pylon's `StorageV`.
     CreatePylonWithNewerMinorVersionThanStorage,
+    /// Tried to build a major version builder with an invalid combination of underlying fields,
+    /// which does not match any existing minor version.
+    InvalidBuilderFields,
 }
 
 impl fmt::Display for Error {
@@ -88,6 +92,9 @@ impl fmt::Display for Error {
             }
             Self::CreatePylonWithNewerMinorVersionThanStorage => {
                 write!(f, "tried to create a Pylon<E, StorageV> from a version of E that has newer minor version than StorageV")
+            }
+            Self::InvalidBuilderFields => {
+                write!(f, "tried to build a major version builder with an invalid combination of underlying fields that did not match any minor version")
             }
         }
     }

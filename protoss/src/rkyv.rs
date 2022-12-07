@@ -1,3 +1,4 @@
+//! Things related to actually implementing `rkyv` for `protoss`.
 // TODO:
 // - Serialize a Pylon<E> as a ArchivedEvolution<E>
 // - Serialize an Rc/Arc<Pylon<E>> as an Archived[Arc/Rc]Evolution<E>
@@ -148,11 +149,7 @@ impl<E: Evolving + ?Sized> ArchivedEvolution<E> {
     /// - the same **major version** as `V`
     /// - the same or later **minor version** as `V`
     pub fn probe_as_version<V: VersionOf<E>>(&self) -> Option<&V> {
-        if let Some(probe) = self.try_as_probe::<V::ProbedBy>() {
-            probe.probe_as()
-        } else {
-            None
-        }
+        self.try_as_probe::<V::ProbedBy>().and_then(ProbeOf::probe_as)
     }
 
     /// Resolves an archived evolution from the given parameters.
@@ -221,6 +218,7 @@ impl<E: Evolving + ?Sized> ArchivedEvolution<E> {
     }
 }
 
+/// The [`Archive::Resolver`] for [`ArchivedEvolution`].
 pub struct ArchivedEvolutionResolver<E: Evolving + ?Sized, V: VersionOf<E>> {
     _phantom: PhantomData<fn(E, V) -> ()>,
     pos: usize
@@ -254,6 +252,10 @@ impl<E: Evolving + ?Sized, V: VersionOf<E>> ArchivedEvolutionResolver<E, V> {
 /// # Example
 /// 
 /// ```rust,no_run
+/// # protoss::fake_evolving_struct!(MyEvolvingStruct);
+/// # use rkyv::{Archive, Serialize, Deserialize};
+/// use protoss::Evolve;
+/// 
 /// #[derive(Archive, Serialize, Deserialize)]
 /// struct Container {
 ///     #[with(Evolve)]
@@ -297,5 +299,70 @@ where
 {
     fn serialize_with(field: &E, serializer: &mut S) -> Result<Self::Resolver, <S as Fallible>::Error> {
         ArchivedEvolution::serialize_with_version_serializer(field, serializer)
+    }
+}
+
+/// This is used to help obey the layout rules imposed for archived [Versions][VersionOf]. You likely won't need to use
+/// it yourself unless you're manually implementing [`Evolving`] for your type.
+/// 
+/// After each minor version's added fields, a dummy field with `PadToAlign<(...)>` should be added, where
+/// `...` is a tuple of the types of each previous field,
+/// in order. Putting this type in a zero-size array causes the compiler to automatically compute the needed alignment for the previous fields
+/// and force the next field out of that alignment, thus preventing "niching" in the padding at the end of the previous version, and therefore
+/// guaranteeing each minor version has monotonically increasing size.
+/// 
+/// You could also calculate the necessary padding manually and add a `[u8; size]` field, but this way is both
+/// less easy to mess up and easier for a proc-macro to implement.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct PadToAlign<T>([T; 0]);
+
+impl<T> Default for PadToAlign<T> {
+    fn default() -> Self {
+        Self([])
+    }
+}
+
+impl<T> PartialEq for PadToAlign<T> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl<T> Eq for PadToAlign<T> {}
+
+impl<T> PartialOrd for PadToAlign<T> {
+    fn partial_cmp(&self, _: &Self) -> Option<core::cmp::Ordering> {
+        Some(core::cmp::Ordering::Equal)
+    }
+}
+
+impl<T> Ord for PadToAlign<T> {
+    fn cmp(&self, _: &Self) -> core::cmp::Ordering {
+        core::cmp::Ordering::Equal
+    }
+}
+
+impl<T> core::hash::Hash for PadToAlign<T> {
+    fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
+}
+
+/// This function's name is a bit odd, it is just a short alias for [`PadToAlign::default()`]
+pub fn pad<T>() -> PadToAlign<T> {
+    Default::default()
+}
+
+impl<T> Archive for PadToAlign<T> {
+    type Archived = Self;
+    type Resolver = ();
+
+    #[inline(always)]
+    unsafe fn resolve(&self, _: usize, _: Self::Resolver, _: *mut Self::Archived) { }
+}
+
+impl<T, S: Fallible> Serialize<S> for PadToAlign<T> {
+    #[inline(always)]
+    fn serialize(&self, _: &mut S) -> Result<Self::Resolver, S::Error> {
+        Ok(())
     }
 }

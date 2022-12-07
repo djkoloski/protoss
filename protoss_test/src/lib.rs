@@ -1,46 +1,78 @@
-use rkyv::Archived;
+mod shared {
+    use rkyv::{Archived, Archive, Serialize, Deserialize};
+    use protoss::rkyv::PadToAlign;
 
-#[derive(Debug, PartialEq)]
-#[repr(C)]
-pub struct ArchivedTestV0_0 {
-    a: u32,
-    b: u8,
-    _pad0: [u8; 3],
+    #[derive(Debug, Archive, Serialize, Deserialize)]
+    #[archive(as = "ArchivedTestV0_0")]
+    pub struct TestV0_0 {
+        pub a: u32,
+        pub b: u8,
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[repr(C)]
+    pub struct ArchivedTestV0_0 {
+        pub a: u32,
+        pub b: u8,
+        pub _pad0: PadToAlign<(Archived<u32>, Archived<u8>)>,
+    }
+
+    #[derive(Debug, Archive, Serialize, Deserialize)]
+    #[archive(as = "ArchivedTestV0_1")]
+    pub struct TestV0_1 {
+        pub a: u32,
+        pub b: u8,
+        pub c: u32,
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[repr(C)]
+    pub struct ArchivedTestV0_1 {
+        pub a: Archived<u32>,
+        pub b: Archived<u8>,
+        pub _pad0: PadToAlign<(Archived<u32>, Archived<u8>)>,
+        pub c: Archived<u32>,
+        pub _pad1: PadToAlign<(Archived<u32>, Archived<u8>, Archived<u32>)>,
+    }
+
+    #[derive(Debug, Archive, Serialize, Deserialize)]
+    #[archive(as = "ArchivedTestV0_2")]
+    pub struct TestV0_2 {
+        pub a: u32,
+        pub b: u8,
+        pub c: u32,
+        pub d: u8
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[repr(C)]
+    pub struct ArchivedTestV0_2 {
+        pub a: Archived<u32>,
+        pub b: Archived<u8>,
+        pub _pad0: PadToAlign<(Archived<u32>, Archived<u8>)>,
+        pub c: Archived<u32>,
+        pub _pad1: PadToAlign<(Archived<u32>, Archived<u8>, Archived<u32>)>,
+        pub d: Archived<u8>,
+        pub _pad2: PadToAlign<(Archived<u32>, Archived<u8>, Archived<u32>, Archived<u8>)>,
+    }
+
+    #[derive(Debug, Archive, Serialize, Deserialize)]
+    #[archive(as = "ArchivedTestV1_0")]
+    pub struct TestV1_0 {
+        pub a: u32,
+        pub b: u32,
+    }
+
+    #[derive(Debug, PartialEq)]
+    #[repr(C)]
+    pub struct ArchivedTestV1_0 {
+        pub a: Archived<u32>,
+        pub b: Archived<u32>,
+        pub _pad0: PadToAlign<(Archived<u32>, Archived<u32>)>,
+    }
 }
 
-#[derive(Debug, PartialEq)]
-#[repr(C)]
-pub struct ArchivedTestV0_1 {
-    a: Archived<u32>,
-    b: Archived<u8>,
-    _pad0: [u8; 3],
-    c: Archived<u32>,
-    _pad1: [u8; 0],
-}
-
-#[derive(Debug, PartialEq)]
-#[repr(C)]
-pub struct ArchivedTestV0_2 {
-    a: Archived<u32>,
-    b: Archived<u8>,
-    _pad0: [u8; 3],
-    c: Archived<u32>,
-    _pad1: [u8; 0],
-    d: Archived<u8>,
-    _pad2: [u8; 3],
-}
-
-#[derive(Debug, PartialEq)]
-#[repr(C)]
-pub struct ArchivedTestV1_0 {
-    a: Archived<u32>,
-    b: Archived<u32>,
-    _pad0: [u8; 0],
-}
-
-const fn pad<const N: usize>() -> [u8; N] {
-    [0u8; N]
-}
+use shared::*;
 
 mod v1 {
     use protoss::{VersionOf, Evolving, AnyProbe, ProbeOf, Version};
@@ -50,6 +82,8 @@ mod v1 {
 
     // #[derive(Evolving)]
     // #[evolving(current_version = 0.1)]
+    #[derive(rkyv::Archive, rkyv::Serialize)]
+    #[archive(as = "<Self as Evolving>::LatestVersion")]
     pub struct Test {
         //#[field(id = 0, since_minor_version = 0)]
         pub a: u32,
@@ -59,44 +93,6 @@ mod v1 {
         pub c: u32,
     }
 
-    pub struct TestResolver {
-        a: ::rkyv::Resolver<u32>,
-        b: ::rkyv::Resolver<u8>,
-        c: ::rkyv::Resolver<u32>,
-    }
-
-    impl<S: ::rkyv::Fallible + ?Sized> ::rkyv::Serialize<S> for Test
-    where
-        u32: ::rkyv::Serialize<S>,
-        u8: ::rkyv::Serialize<S>,
-    {
-        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, <S as rkyv::Fallible>::Error> {
-            Ok(Self::Resolver {
-                a: self.a.serialize(serializer)?,
-                b: self.b.serialize(serializer)?,
-                c: self.c.serialize(serializer)?,
-            })
-        }
-    }
-
-    impl rkyv::Archive for Test {
-        type Archived = <Self as Evolving>::LatestVersion;
-        type Resolver = TestResolver;
-
-        unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-            let (fp, fo) = ::rkyv::out_field!(out.a);
-            self.a.resolve(pos + fp, resolver.a, fo);
-            let (fp, fo) = ::rkyv::out_field!(out.b);
-            self.b.resolve(pos + fp, resolver.b, fo);
-            let (fp, fo) = ::rkyv::out_field!(out.c);
-            self.c.resolve(pos + fp, resolver.c, fo);
-            let fo = ::core::ptr::addr_of_mut!((*out)._pad0);
-            *fo = core::mem::zeroed();
-            let fo = ::core::ptr::addr_of_mut!((*out)._pad1);
-            *fo = core::mem::zeroed();
-        }
-    }
-
     // imagine this as Serialize
     impl From<Test> for ArchivedTestV0_1 {
         fn from(Test { a, b, c}: Test) -> Self {
@@ -104,8 +100,8 @@ mod v1 {
                 a,
                 b,
                 c,
-                _pad0: [0; 3],
-                _pad1: [0; 0],
+                _pad0: Default::default(),
+                _pad1: Default::default(),
             }
         }
     }
@@ -163,14 +159,14 @@ mod v1 {
             <Self as ProbeOf<Test>>::probe_as(self)
         }
 
-        pub fn a(&self) -> &u32 {
+        pub fn a(&self) -> Option<&u32> {
             let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
-            &v0.a
+            Some(&v0.a)
         }
 
-        pub fn b(&self) -> &u8 {
+        pub fn b(&self) -> Option<&u8> {
             let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
-            &v0.b
+            Some(&v0.b)
         }
 
         pub fn c(&self) -> Option<&u32> {
@@ -191,6 +187,8 @@ mod v2 {
 
     // #[derive(Evolving)]
     // #[evolving(current_version = 0.2)]
+    #[derive(rkyv::Archive, rkyv::Serialize)]
+    #[archive(as = "<Self as Evolving>::LatestVersion")]
     pub struct Test {
         //#[field(id = 0, since_minor_version = 0)]
         pub a: u32,
@@ -202,50 +200,6 @@ mod v2 {
         pub d: u8,
     }
 
-    pub struct TestResolver {
-        a: ::rkyv::Resolver<u32>,
-        b: ::rkyv::Resolver<u8>,
-        c: ::rkyv::Resolver<u32>,
-        d: ::rkyv::Resolver<u8>,
-    }
-
-    impl<S: ::rkyv::Fallible + ?Sized> ::rkyv::Serialize<S> for Test
-    where
-        u32: ::rkyv::Serialize<S>,
-        u8: ::rkyv::Serialize<S>,
-    {
-        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, <S as rkyv::Fallible>::Error> {
-            Ok(Self::Resolver {
-                a: self.a.serialize(serializer)?,
-                b: self.b.serialize(serializer)?,
-                c: self.c.serialize(serializer)?,
-                d: self.d.serialize(serializer)?,
-            })
-        }
-    }
-
-    impl ::rkyv::Archive for Test {
-        type Archived = <Self as Evolving>::LatestVersion;
-        type Resolver = TestResolver;
-
-        unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-            let (fp, fo) = ::rkyv::out_field!(out.a);
-            self.a.resolve(pos + fp, resolver.a, fo);
-            let (fp, fo) = ::rkyv::out_field!(out.b);
-            self.b.resolve(pos + fp, resolver.b, fo);
-            let (fp, fo) = ::rkyv::out_field!(out.c);
-            self.c.resolve(pos + fp, resolver.c, fo);
-            let (fp, fo) = ::rkyv::out_field!(out.d);
-            self.d.resolve(pos + fp, resolver.d, fo);
-            let fo = ::core::ptr::addr_of_mut!((*out)._pad0);
-            *fo = core::mem::zeroed();
-            let fo = ::core::ptr::addr_of_mut!((*out)._pad1);
-            *fo = core::mem::zeroed();
-            let fo = ::core::ptr::addr_of_mut!((*out)._pad2);
-            *fo = core::mem::zeroed();
-        }
-    }
-
     // imagine this as Serialize
     impl From<Test> for ArchivedTestV0_2 {
         fn from(Test { a, b, c, d }: Test) -> Self {
@@ -254,9 +208,9 @@ mod v2 {
                 b,
                 c,
                 d,
-                _pad0: [0; 3],
-                _pad1: [0; 0],
-                _pad2: [0; 3],
+                _pad0: Default::default(),
+                _pad1: Default::default(),
+                _pad2: Default::default(),
             }
         }
     }
@@ -319,14 +273,14 @@ mod v2 {
             <Self as ProbeOf<Test>>::probe_as(self)
         }
 
-        pub fn a(&self) -> &u32 {
+        pub fn a(&self) -> Option<&u32> {
             let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
-            &v0.a
+            Some(&v0.a)
         }
 
-        pub fn b(&self) -> &u8 {
+        pub fn b(&self) -> Option<&u8> {
             let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
-            &v0.b
+            Some(&v0.b)
         }
 
         pub fn c(&self) -> Option<&u32> {
@@ -351,20 +305,18 @@ mod v3 {
     use protoss::{VersionOf, Evolving, Version, ProbeOf, AnyProbe};
     use ptr_meta::Pointee;
 
-    use super::{ArchivedTestV0_0, ArchivedTestV0_1, ArchivedTestV0_2, ArchivedTestV1_0, pad};
+    use super::{ArchivedTestV0_0, ArchivedTestV0_1, ArchivedTestV0_2, ArchivedTestV1_0};
 
     // #[derive(Evolving)]
     // #[evolving(current_version = 1.0)]
+    #[derive(rkyv::Archive, rkyv::Serialize)]
+    #[archive(as = "<Self as Evolving>::LatestVersion")]
     pub struct Test {
         //#[field(id = 0, since_minor_version = 0)]
         pub a: u32,
         //#[field(id = 1, since_minor_version = 0)]
         pub b: u32,
     }
-
-    // trait DefEvolutionOfTest {
-    //     fn upgrade_major_0_to_major_1(major_0: &TestProbeMajor0) -> ArchivedTestV1_0;
-    // }
 
     // #[protoss::previous_evolution_definition(
     //     of = Test,
@@ -381,36 +333,25 @@ mod v3 {
     //     pub d: u8,
     // }
 
-    pub struct TestResolver {
-        a: ::rkyv::Resolver<u32>,
-        b: ::rkyv::Resolver<u32>,
-    }
+    // pub enum TestMajor0 {
+    //     Minor0(TestV0_0),
+    //     Minor1(TestV0_1),
+    //     Minor2(TestV0_2),
+    // }
 
-    impl<S: ::rkyv::Fallible + ?Sized> ::rkyv::Serialize<S> for Test
-    where
-        u32: ::rkyv::Serialize<S>,
-    {
-        fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, <S as rkyv::Fallible>::Error> {
-            Ok(Self::Resolver {
-                a: self.a.serialize(serializer)?,
-                b: self.b.serialize(serializer)?,
-            })
-        }
-    }
+    // pub enum TestMajor1 {
+    //     Minor0(TestV1_0)
+    // }
 
-    impl ::rkyv::Archive for Test {
-        type Archived = <Self as Evolving>::LatestVersion;
-        type Resolver = TestResolver;
+    // trait DefEvolutionOfTest {
+    //     fn upgrade_major_0_to_major_1(major_0: &TestProbeMajor0) -> TestMajor1;
+    // }
 
-        unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-            let (fp, fo) = ::rkyv::out_field!(out.a);
-            self.a.resolve(pos + fp, resolver.a, fo);
-            let (fp, fo) = ::rkyv::out_field!(out.b);
-            self.b.resolve(pos + fp, resolver.b, fo);
-            let fo = ::core::ptr::addr_of_mut!((*out)._pad0);
-            *fo = core::mem::zeroed();
-        }
-    }
+    // impl DefEvolutionOfTest for Test {
+    //     fn upgrade_major_0_to_major_1(major_0: &TestProbeMajor0) -> TestMajor1 {
+    //
+    //     }
+    // }
 
     // imagine this as Serialize
     impl From<Test> for ArchivedTestV1_0 {
@@ -418,7 +359,7 @@ mod v3 {
             ArchivedTestV1_0 {
                 a,
                 b,
-                _pad0: pad(),
+                _pad0: Default::default(),
             }
         }
     }
@@ -497,14 +438,14 @@ mod v3 {
             <Self as ProbeOf<Test>>::as_version_unchecked(self)
         }
 
-        pub fn a(&self) -> &u32 {
+        pub fn a(&self) -> Option<&u32> {
             let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
-            &v0.a
+            Some(&v0.a)
         }
 
-        pub fn b(&self) -> &u8 {
+        pub fn b(&self) -> Option<&u8> {
             let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV0_0>() };
-            &v0.b
+            Some(&v0.b)
         }
 
         pub fn c(&self) -> Option<&u32> {
@@ -554,14 +495,14 @@ mod v3 {
             <Self as ProbeOf<Test>>::as_version_unchecked(self)
         }
 
-        pub fn a(&self) -> &u32 {
+        pub fn a(&self) -> Option<&u32> {
             let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV1_0>() };
-            &v0.a
+            Some(&v0.a)
         }
 
-        pub fn b(&self) -> &u32 {
+        pub fn b(&self) -> Option<&u32> {
             let v0 = unsafe { self.as_version_unchecked::<ArchivedTestV1_0>() };
-            &v0.b
+            Some(&v0.b)
         }
     }
 }
@@ -570,14 +511,18 @@ mod v3 {
 mod tests {
     use super::*;
 
-    use protoss::Pylon;
+    use protoss::pylon::Pylon;
     use protoss::Evolve;
+    use protoss::rkyv::pad;
     use rkyv::AlignedVec;
     use rkyv::Archive;
+    use rkyv::Archived;
     use rkyv::Serialize;
     use rkyv::archived_root;
     use rkyv::ser::Serializer;
     use rkyv::ser::serializers::AllocSerializer;
+
+    type DefaultSerializer = AllocSerializer<256>;
 
     #[test]
     fn into_boxed_probe() {
@@ -592,8 +537,8 @@ mod tests {
 
         assert_eq!(probe_v1.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 1, b: 2, _pad0: pad() }));
         assert_eq!(probe_v1.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
-        assert_eq!(probe_v1.a(), &1);
-        assert_eq!(probe_v1.b(), &2);
+        assert_eq!(probe_v1.a(), Some(&1));
+        assert_eq!(probe_v1.b(), Some(&2));
         assert_eq!(probe_v1.c(), Some(&3));
     }
 
@@ -628,13 +573,11 @@ mod tests {
         assert_eq!(v2_from_v1.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 1, b: 2, _pad0: pad() }));
         assert_eq!(v2_from_v1.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
         assert_eq!(v2_from_v1.probe_as::<ArchivedTestV0_2>(), None);
-        assert_eq!(v2_from_v1.a(), &1);
-        assert_eq!(v2_from_v1.b(), &2);
+        assert_eq!(v2_from_v1.a(), Some(&1));
+        assert_eq!(v2_from_v1.b(), Some(&2));
         assert_eq!(v2_from_v1.c(), Some(&3));
         assert_eq!(v2_from_v1.d(), None);
     }
-
-    type DefaultSerializer = AllocSerializer<256>;
 
     #[test]
     fn basic_archiving() {
@@ -663,8 +606,8 @@ mod tests {
 
         assert_eq!(probe.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 1, b: 2, _pad0: pad() }));
         assert_eq!(probe.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
-        assert_eq!(probe.a(), &1);
-        assert_eq!(probe.b(), &2);
+        assert_eq!(probe.a(), Some(&1));
+        assert_eq!(probe.b(), Some(&2));
         assert_eq!(probe.c(), Some(&3));
     }
 
@@ -706,8 +649,8 @@ mod tests {
         assert_eq!(probe.probe_as::<ArchivedTestV0_0>(), Some(&ArchivedTestV0_0 { a: 1, b: 2, _pad0: pad() }));
         assert_eq!(probe.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 1, b: 2, _pad0: pad(), c: 3, _pad1: pad() }));
         assert_eq!(probe.probe_as::<ArchivedTestV0_2>(), None);
-        assert_eq!(probe.a(), &1);
-        assert_eq!(probe.b(), &2);
+        assert_eq!(probe.a(), Some(&1));
+        assert_eq!(probe.b(), Some(&2));
         assert_eq!(probe.c(), Some(&3));
         assert_eq!(probe.d(), None);
     }
@@ -752,8 +695,8 @@ mod tests {
         assert_eq!(probe.probe_as::<ArchivedTestV0_1>(), Some(&ArchivedTestV0_1 { a: 5, b: 6, _pad0: pad(), c: 7, _pad1: pad() }));
         // compile fails because v1 doesn't know about V0_2!
         // assert_eq!(probe.probe_as::<ArchivedTestV0_2>(), Some(&ArchivedTestV0_2 { a: 5, b: 6, _pad0: pad(), c: 7, _pad1: pad(), d: 8, _pad2: pad() }));
-        assert_eq!(probe.a(), &5);
-        assert_eq!(probe.b(), &6);
+        assert_eq!(probe.a(), Some(&5));
+        assert_eq!(probe.b(), Some(&6));
         assert_eq!(probe.c(), Some(&7));
         // compile fails because v1 doesn't know about field d on V0_2!
         // assert_eq!(probe.d(), Some(&8));

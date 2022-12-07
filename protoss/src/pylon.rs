@@ -1,3 +1,4 @@
+//! A stack-allocated container for an archived version of an evolving type.
 use core::{
     fmt,
     mem::{self, MaybeUninit},
