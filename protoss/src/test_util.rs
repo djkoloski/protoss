@@ -6,8 +6,9 @@
 macro_rules! fake_evolving_struct {
     ($name:ident) => {
         #[derive(::rkyv::Archive, ::rkyv::Serialize, ::rkyv::Deserialize)]
-        #[archive(as = "FakeVersion")]
+        #[archive(as = "<<Self as ::protoss::Evolving>::LatestVersion as ::rkyv::Archive>::Archived")]
         struct $name {}
+        #[derive(::rkyv::Archive, ::rkyv::Serialize)]
         struct FakeVersion {}
         #[derive(::ptr_meta::Pointee)]
         struct FakeProbe {
@@ -19,10 +20,10 @@ macro_rules! fake_evolving_struct {
         }
         unsafe impl ::protoss::ProbeOf<$name> for FakeProbe {
             const PROBES_MAJOR_VERSION: u16 = 0;
-            fn probe_as<V: ::protoss::VersionOf<$name, ProbedBy = Self>>(&self) -> Option<&V> {
+            fn probe_as<V: ::protoss::VersionOf<$name, ProbedBy = Self>>(&self) -> Option<&V::Archived> {
                 unimplemented!()
             }
-            unsafe fn as_version_unchecked<V: ::protoss::VersionOf<$name, ProbedBy = Self>>(&self) -> &V {
+            unsafe fn as_version_unchecked<V: ::protoss::VersionOf<$name, ProbedBy = Self>>(&self) -> &V::Archived {
                 unimplemented!()
             }
         }

@@ -148,8 +148,8 @@ impl<E: Evolving + ?Sized> ArchivedEvolution<E> {
     /// For this to succeed, the contained version in `self` must be:
     /// - the same **major version** as `V`
     /// - the same or later **minor version** as `V`
-    pub fn probe_as_version<V: VersionOf<E>>(&self) -> Option<&V> {
-        self.try_as_probe::<V::ProbedBy>().and_then(ProbeOf::probe_as)
+    pub fn probe_as_version<V: VersionOf<E>>(&self) -> Option<&V::Archived> {
+        self.try_as_probe::<V::ProbedBy>().and_then(ProbeOf::probe_as::<V>)
     }
 
     /// Resolves an archived evolution from the given parameters.
@@ -209,7 +209,7 @@ impl<E: Evolving + ?Sized> ArchivedEvolution<E> {
     pub fn serialize_with_version_serializer<V, VS, S>(version_serializer: &VS, serializer: &mut S) -> Result<ArchivedEvolutionResolver<E, V>, S::Error>
     where
         V: VersionOf<E>,
-        VS: Serialize<S, Archived = V>,
+        VS: Serialize<S, Archived = <V as Archive>::Archived>,
         S: Serializer + ?Sized,
     {
         let pos = serializer.serialize_value(version_serializer)?;
@@ -266,7 +266,7 @@ pub struct Evolve;
 
 impl<E> ArchiveWith<E> for Evolve
 where
-    E: Evolving + Archive<Archived = E::LatestVersion>
+    E: Evolving + Archive<Archived = <E::LatestVersion as Archive>::Archived>
 {
     type Archived = ArchivedEvolution<E>;
     type Resolver = ArchivedEvolutionResolver<E, E::LatestVersion>;
@@ -295,7 +295,7 @@ where
 impl<S, E> SerializeWith<E, S> for Evolve
 where
     S: Serializer + ?Sized,
-    E: Evolving + Serialize<S, Archived = E::LatestVersion>,
+    E: Evolving + Serialize<S, Archived = <E::LatestVersion as Archive>::Archived>,
 {
     fn serialize_with(field: &E, serializer: &mut S) -> Result<Self::Resolver, <S as Fallible>::Error> {
         ArchivedEvolution::serialize_with_version_serializer(field, serializer)

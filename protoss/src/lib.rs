@@ -65,6 +65,8 @@ pub use crate::rkyv::Evolve;
 // pub use pylon::Pylon;
 // pub use protoss_derive::protoss;
 
+use ::rkyv::Archive;
+
 /// A common error type for all errors that could occur in `protoss`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
@@ -138,8 +140,15 @@ impl Version {
 /// and each **major version** may have one or more **minor versions** which *are* binary compatible,
 /// following a "schema evolution" process.
 /// 
-/// Each unique version has a concrete backing type which defines its exact layout. Each of these concrete
-/// backing types should implement [`VersionOf<Self>`].
+/// Each unique version has a concrete backing type which defines its exact set of fields and which implements
+/// [`Archive`] such that its [`Archived`][Archive::Archived] type defines that specific version's exact archived layout.
+/// Each of these concrete version types should implement [`VersionOf<Self>`].
+/// 
+/// For example, say we have a type which we want to evolve over time, called `MyType`. Let's say that right now, it has
+/// one major version (0) and two minor versions (0 and 1). The core `MyType` should have all the latest fields and impl [`Evolving`],
+/// and there should be two version structs, `MyTypeV0_0` and `MyTypeV0_1`, which each implement [`VersionOf<MyType>`], as well as
+/// [`Archive`] with [`Archived`][Archive::Archived] types of `ArchivedMyTypeV0_0` and `ArchivedMyTypeV0_1`, respectively. When
+/// using the derive macros, these version and archived version structs will be generated for you.
 /// 
 /// Each **major version** also has a concrete "[Probe][ProbeOf]" type, which is
 /// able to "poke at" or "[probe][ProbeOf::probe_as]" serialized binary data which
@@ -182,40 +191,45 @@ pub unsafe trait Evolving {
 /// 
 /// # Safety
 /// 
-/// Implementing this trait means that it must be valid to construct
-/// (via [`ptr_meta::from_raw_parts`]) a [`Self::ProbedBy`] [Probe][ProbeOf] with a data pointer to a `Self`
+/// Implementing this trait means that it must be valid to construct (via [`ptr_meta::from_raw_parts`])
+/// a [`Self::ProbedBy`] [Probe][ProbeOf] with a data pointer to a [`<Self as Archive>::Archived`][Archive::Archived]
 /// and the metadata returned by [`E::probe_metadata(Self::VERSION)`]. This implies
 /// the following requirements, as well as the ones discussed in the
 /// documentation for both [`ptr_meta::Pointee`] and [`ptr_meta::from_raw_parts`]:
 /// 
-/// - For some `E`, all [`VersionOf<E>`] within the same **major version** must have exactly the same
+/// - For some `E`, the [`Archived`] type of all [`VersionOf<E>`] within the same **major version** must have exactly the same
 /// memory layout as the previous version until the end of the previous version's size. In plain speak
 /// this means each version must only add new fields after the end of the previous version, and never change
-/// the layout of fields that has already been used in a previous version. This also implies the following:
-///     - All [`VersionOf<E>`] within the same **major version** must have size > (not >=) the version that came
+/// the layout of fields that have already been used in a previous version. This also implies the following:
+///     - The [`Archived`] type of all [`VersionOf<E>`] within the same **major version** must have size > (not >=) the version that came
 /// before it (each version's size must be [*monotonically increasing*])
-///     - All [`VersionOf<E>`] within the same **major version** must have an alignment >= the version that came before it
-///     - `Self` must have no padding after its final field, i.e. the end of the memory that the final field
+///     - The [`Archived`] type of all [`VersionOf<E>`] within the same **major version** must have an alignment >= the version that came before it
+///     - The [`Archived`] type of `Self` must have no padding after its final field, i.e. the end of the memory that the final field
 /// occupies must also be the end of the whole struct.
 /// 
+/// [`Archived`]: Archive::Archived
 /// [`Self::ProbedBy`]: VersionOf::ProbedBy
 /// [`E::probe_metadata(Self::VERSION)`]: Evolving::probe_metadata
 /// [`ptr_meta` documentation]: ptr_meta::
 /// [*monotonically increasing*]: https://mathworld.wolfram.com/MonotoneIncreasing.html
-pub unsafe trait VersionOf<E: Evolving + ?Sized>: Sized {
+pub unsafe trait VersionOf<E> 
+where
+    E: Evolving + ?Sized,
+    Self: Archive,
+{
+    /// The version number of `E` for which `Self` is the concrete definition
+    const VERSION: Version;
+
     /// The [`ProbeOf<E>`] type that is able to probe this version of `E` (this will be the same
     /// for all [`VersionOf<E>`] with the same major version)
     type ProbedBy: ProbeOf<E> + ?Sized;
 
-    /// The version number of `E` for which `Self` is the concrete definition
-    const VERSION: Version;
-
     /// Cast `&self` as its [Probe][ProbeOf] type ([`Self::ProbedBy`][VersionOf::ProbedBy]).
-    fn as_probe(&self) -> &Self::ProbedBy {
+    fn archived_as_probe(archived: &Self::Archived) -> &Self::ProbedBy {
         unsafe {
             &*::ptr_meta::from_raw_parts(
-                (self as *const Self).cast(),
-                core::mem::size_of::<Self>() as ProbeMetadata,
+                (archived as *const Self::Archived).cast(),
+                core::mem::size_of::<Self::Archived>() as ProbeMetadata,
             )
         }
     }
@@ -240,14 +254,15 @@ pub unsafe trait ProbeOf<E>
 where
     E: Evolving + ?Sized,
     Self: Pointee<Metadata = ProbeMetadata>,
+    Self: 'static,
 {
     /// The major version of `E` that `Self` probes
     const PROBES_MAJOR_VERSION: u16;
 
     /// "Probes" `self` as the given [`VersionOf<E>`].
     /// 
-    /// Returns `Some(&V)` if `self` is a >= minor version and `None` if `self` is an earlier minor version.
-    fn probe_as<V: VersionOf<E, ProbedBy = Self>>(&self) -> Option<&V>;
+    /// Returns `Some(&V::Archived)` if `self` is a >= minor version and `None` if `self` is an earlier minor version.
+    fn probe_as<V: VersionOf<E, ProbedBy = Self>>(&self) -> Option<&V::Archived>;
 
     /// Assumes `self` is the given [`VersionOf<E>`] and casts self as that version.
     /// 
@@ -256,7 +271,7 @@ where
     /// This probe must have been created with data that is binary-compatible with the given
     /// version: it must be the same major version as [`Self::PROBES_MAJOR_VERSION`][ProbeOf::PROBES_MAJOR_VERSION]
     /// and an equal or later minor version.
-    unsafe fn as_version_unchecked<V: VersionOf<E, ProbedBy = Self>>(&self) -> &V;
+    unsafe fn as_version_unchecked<V: VersionOf<E, ProbedBy = Self>>(&self) -> &V::Archived;
 
     /// Cast `&self` into a `&AnyProbe<E>`.
     /// 

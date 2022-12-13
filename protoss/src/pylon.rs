@@ -6,14 +6,17 @@ use core::{
 };
 use crate::{Evolving, VersionOf, Version};
 
-/// An owned, stack-allocated container for some version of an [`Evolving`] type `E`.
+/// An owned, stack-allocated container for an archived version of an [`Evolving`] type `E`.
 /// 
-/// It is backed by some `StorageV` which is a [`VersionOf<E>`], meaning it can store
+/// It is backed by the `Archived` type of some `StorageV` which is a [`VersionOf<E>`], meaning it can store
 /// any version of `E` with the same **major version** as `StorageV` and a **minor version**
 /// less than or equal to `StorageV`.
+/// 
+/// Note that this type is only rarely useful and it requires there's a trivial way to construct the [`Archived`][::rkyv::Archive::Archived]
+/// type of your evolving type, which may not always be the case.
 pub struct Pylon<E: Evolving, StorageV: VersionOf<E> = <E as Evolving>::LatestVersion> {
     _phantom: PhantomData<E>,
-    storage: MaybeUninit<StorageV>,
+    storage: MaybeUninit<StorageV::Archived>,
     contained_version: Version,
 }
 
@@ -37,7 +40,7 @@ impl<E: Evolving, StorageV: VersionOf<E>> Pylon<E, StorageV> {
     ///
     /// `stored_value` must have the fields defined by `contained_version` initialized.
     #[inline]
-    pub unsafe fn new_unchecked(stored_value: MaybeUninit<StorageV>, contained_version: Version) -> Self {
+    pub unsafe fn new_unchecked(stored_value: MaybeUninit<StorageV::Archived>, contained_version: Version) -> Self {
         Self {
             _phantom: PhantomData,
             storage: stored_value,
@@ -49,7 +52,7 @@ impl<E: Evolving, StorageV: VersionOf<E>> Pylon<E, StorageV> {
     /// 
     /// In order for this to succeed, `V` must be from the same major version
     /// as `StorageV` and be a minor version less than or equal to `StorageV`.
-    pub fn new<V: VersionOf<E>>(version_value: V) -> Result<Self, crate::Error> {
+    pub fn new<V: VersionOf<E>>(version_value: V::Archived) -> Result<Self, crate::Error> {
         let v_version = V::VERSION;
         let storage_version = StorageV::VERSION;
         if v_version.major != storage_version.major {
@@ -61,7 +64,7 @@ impl<E: Evolving, StorageV: VersionOf<E>> Pylon<E, StorageV> {
         let mut storage = MaybeUninit::uninit();
         // TODO: safety comment
         unsafe {
-            *(&mut storage as *mut MaybeUninit<StorageV>).cast::<V>() = version_value;
+            *(&mut storage as *mut MaybeUninit<StorageV::Archived>).cast::<V::Archived>() = version_value;
         }
         Ok(Self {
             _phantom: PhantomData,
@@ -111,7 +114,7 @@ impl<E: Evolving, StorageV: VersionOf<E>> Pylon<E, StorageV> {
     /// Unwraps the versioned type if the contained data is a `StorageV`
     ///
     /// If the data is not a `StorageV` version, `Err` is returned with the original value.
-    pub fn try_unwrap(mut self) -> Result<StorageV, Self> {
+    pub fn try_unwrap(mut self) -> Result<StorageV::Archived, Self> {
         if self.is_complete() {
             let value = mem::replace(&mut self.storage, MaybeUninit::uninit());
             mem::forget(self);
@@ -124,7 +127,7 @@ impl<E: Evolving, StorageV: VersionOf<E>> Pylon<E, StorageV> {
     }
 
     /// Same as [`try_unwrap`][Pylon::try_unwrap] but panics if it fails.
-    pub fn unwrap(self) -> StorageV
+    pub fn unwrap(self) -> StorageV::Archived
     where
         StorageV::ProbedBy: core::fmt::Debug
     {
