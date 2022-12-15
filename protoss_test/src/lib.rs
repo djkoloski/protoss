@@ -102,7 +102,7 @@ mod v1 {
         type LatestEvolution = TestV1;
         fn probe_metadata(version: Version) -> Result<<AnyProbe<Test> as Pointee>::Metadata, protoss::Error> {
             match version {
-                <TestV0 as Evolution>::VERSION => Ok(<TestV0 as Evolution>::METADATA),
+                TestV0::VERSION => Ok(TestV0::METADATA),
                 TestV1::VERSION => Ok(TestV1::METADATA),
                 _ => Err(protoss::Error::TriedToGetProbeMetadataForNonExistentVersion)
             }
