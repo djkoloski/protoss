@@ -1,7 +1,4 @@
 //! Things related to actually implementing `rkyv` for `protoss`.
-// TODO:
-// - Serialize a Pylon<E> as a ArchivedEvolution<E>
-// - Serialize an Rc/Arc<Pylon<E>> as an Archived[Arc/Rc]Evolution<E>
 
 use core::marker::PhantomData;
 

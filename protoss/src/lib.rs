@@ -52,7 +52,6 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-pub mod pylon;
 pub mod rkyv;
 mod test_util;
 
@@ -62,7 +61,6 @@ use ::ptr_meta::Pointee;
 pub use crate::rkyv::ArchivedEvolution;
 pub use crate::rkyv::AnyProbe;
 pub use crate::rkyv::Evolve;
-// pub use pylon::Pylon;
 // pub use protoss_derive::protoss;
 
 use ::rkyv::Archive;
@@ -72,12 +70,6 @@ use ::rkyv::Archive;
 pub enum Error {
     /// Tried to get [Probe][ProbeOf] metadata for a non-existent version of an [`Evolving`] type.
     TriedToGetProbeMetadataForNonExistentVersion,
-    /// Tried to create a [`Pylon<E, StorageV>`] by a [`Evolution`] that is from a
-    /// different **major version** than the pylon's `StorageV`.
-    CreatePylonWithUnmatchedMajorVersions,
-    /// Tried to create a [`Pylon<E, StorageV>`] by a [`Evolution`] that has a newer (larger)
-    /// **minor version** than the pylon's `StorageV`.
-    CreatePylonWithNewerMinorVersionThanStorage,
     /// Tried to build a major version builder with an invalid combination of underlying fields,
     /// which does not match any existing minor version.
     InvalidBuilderFields,
@@ -88,12 +80,6 @@ impl fmt::Display for Error {
         match self {
             Self::TriedToGetProbeMetadataForNonExistentVersion => {
                 write!(f, "tried to get probe metadata for a non-existent version of an Evolving type")
-            }
-            Self::CreatePylonWithUnmatchedMajorVersions => {
-                write!(f, "tried to create a Pylon<E, StorageV> from a version of E that has different major version than StorageV")
-            }
-            Self::CreatePylonWithNewerMinorVersionThanStorage => {
-                write!(f, "tried to create a Pylon<E, StorageV> from a version of E that has newer minor version than StorageV")
             }
             Self::InvalidBuilderFields => {
                 write!(f, "tried to build a major version builder with an invalid combination of underlying fields that did not match any minor version")
