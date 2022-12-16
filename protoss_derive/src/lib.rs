@@ -1,6 +1,6 @@
 //! Procedural macros for `protoss`.
 //! 
-//! \*\* ***NOTE: None of this is implemented yet, but this is prototype design work on what we want it to look like.***
+//! \*\* ***NOTE: THIS INFORMATION IS CURRENTLY OUT OF DATE AND ALSO UNIMPLEMENTED.***
 //! 
 //! Two main macros drive this system: `#[derive(protoss::Evolving)]` and `#[protoss::previous_evolution_of]`.
 //! 
