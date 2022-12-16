@@ -1,43 +1,35 @@
 //! `protoss` implements a protocol for [schema evolution] of
 //! binary serialized data, designed to be used with [`rkyv`][::rkyv].
 //! 
-//! It offers **full** compatibilty* (forward and backward) and **zero-copy deserialization** among **minor versions**
-//! (under a restrictive set of allowed changes), and **backward** compatibility* among **major versions**
-//! (allow arbitrary changes).
-//! 
+//! It offers **full** compatibilty\* (forward and backward) and **zero-copy deserialization** among "[`Evolution`]s"
+//! of a base "[`Evolving`]" type, under a restrictive set of allowed changes, similar to Flatbuffers and Cap'n Proto.
+//!
 //! \* *A note on compatibility types:*
 //! * **Backward** compatibility means that consumers (readers of serialized data) can read data
 //! *produced by* an **older** version of the schema.
 //! * **Forward** compatiblity means that consumers (readers of serialized data) can read data
 //! *produced by* a **newer** version of the schema.
 //! 
-//! **Minor version** upgrades may:
+//! [`Evolution`]s of an [`Evolving`] type are allowed to:
 //! * Add new fields
 //!     - These new fields are always treated as optional
 //!     - Fields may only be added to the end of an existing type
-//!         - *but if you use ids you can define them in any order in code as long as the ids dont change*
+//!         - *but when using the provided derive macros, if you use field `id`s, you can define them in any order in code as long as the `id`s dont change*
+//! * Rename existing fields (*but not change the type*)
+//!
+//! They are not allowed to:
+//! * Remove existing fields entirely
+//! * Change the type of existing fields
+//! * Re-order existing fields
+//! * Add new fields to the middle of an existing type
 //! 
 //! You can think of this as a similar type of schema evolution as what Protocol Buffers, Flatbuffers, and Cap'n Proto
 //! offer. Existing consumers expecting a previous version may still read data produced with the new version as
 //! the old version, and consumers expecting the new version will still be able to read all the fields that were defined
 //! by the older producer.
 //! 
-//! **Major version** upgrades may:
-//! * Do anything they want to the type
-//! 
-//! After a major version change, existing consumers (readers of serialized data) expecting a *previous version*
-//! will no longer be able to read data produced with the newer major version.
-//! 
-//! New consumers which have updated to the latest major version that expect the latest major version
-//! will no longer have *zero copy* access to data produced with a previous version (unless they specifically
-//! choose to ask for the data as the older major version). However, they *can* still get access to a new copy
-//! of the data in the latest major version which has been upgraded (via a best-effort upgrade function
-//! chain).**
-//! 
-//! \*\* *TODO: This not actually implemented at all yet ;p*
-//! 
 //! For more on how this works, see the documentation of the [`Evolving`] trait, which is the centerpiece of the `protoss`
-//! model, for more.
+//! model.
 //! 
 //! Also, see the crate-level documentation of [`protoss_derive`] for info on how this system is intended to be
 //! implemented/used by the end user.
@@ -68,7 +60,7 @@ use ::rkyv::Archive;
 /// A common error type for all errors that could occur in `protoss`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
-    /// Tried to get [Probe][ProbeOf] metadata for a non-existent version of an [`Evolving`] type.
+    /// Tried to get [Probe] metadata for a non-existent version of an [`Evolving`] type.
     TriedToGetProbeMetadataForNonExistentVersion,
     /// Tried to build a major version builder with an invalid combination of underlying fields,
     /// which does not match any existing minor version.
@@ -91,7 +83,7 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-/// A version identifier containing the "minor" version.
+/// A version identifier containing which "minor" version.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Version(pub u16);
@@ -105,40 +97,39 @@ impl Version {
 
 /// A type that has multiple versions that may be changed over time. 
 /// 
-/// An [`Evolving`] type may have one or more **minor versions** which are *binary compatible*,
-/// following a "schema evolution" process.
-/// 
-/// Each unique version has a concrete backing type which defines its exact set of fields and which implements
-/// [`Archive`] such that its [`Archived`][Archive::Archived] type defines that specific version's exact archived layout.
-/// Each of these concrete version types should implement [`VersionOf<Self>`].
+/// An [`Evolving`] type may have one or more [`Evolution`]s, which can also be thought of as *minor versions* or
+/// *collections of binary-compatible changes* to their schema.
+///
+/// Each unique [`Evolution`] has a concrete backing type which defines its exact set of fields, and which implements
+/// [`Archive`] such that its [`Archived`][Archive::Archived] type follows a specific set of rules that guarantee binary
+/// compatibility between such archived [`Evolution`]s.
 /// 
 /// For example, say we have a type which we want to evolve over time, called `MyType`. Let's say that right now, it has
-/// one major version (0) and two minor versions (0 and 1). The core `MyType` should have all the latest fields and impl [`Evolving`],
-/// and there should be two version structs, `MyTypeV0_0` and `MyTypeV0_1`, which each implement [`VersionOf<MyType>`], as well as
-/// [`Archive`] with [`Archived`][Archive::Archived] types of `ArchivedMyTypeV0_0` and `ArchivedMyTypeV0_1`, respectively. When
+/// two "evolutions", i.e. two compatible versions of its schema (0 and 1). The core `MyType` should have all the latest fields
+/// (from evolution 1) and implement [`Evolving`], and there should be two version structs, `MyTypeV0` and `MyTypeV1`, which each
+/// implement [`Evolution`] with [`Base = MyType`][Evolution::Base], as well as
+/// [`Archive`] with [`Archived`][Archive::Archived] types `ArchivedMyTypeV0` and `ArchivedMyTypeV1`, respectively. When
 /// using the derive macros, these version and archived version structs will be generated for you.
 /// 
-/// Each **major version** also has a concrete "[Probe][ProbeOf]" type, which is
-/// able to "poke at" or "[probe][ProbeOf::probe_as]" serialized binary data which
-/// contains an **unknown** *minor version* within some known *major version* of an `Self`.
-/// Through "probing", we are able to determine which actual [version][`VersionOf`] it contains,
-/// and therefore access it as the specific [version of `Self`][`VersionOf`] we have determined it to be.
+/// Each [`Evolving`] type also has a concrete "[`Probe`]" type, which is
+/// able to "poke at" or "probe" serialized binary data which
+/// contains an **unknown** [`Evolution`] of that base [`Evolving`] type.
+/// Through "probing", we are able to determine which actual [evolution][`Evolution`] it contains,
+/// and therefore access it as the specific [evolution of `Self`][`Evolution`] we have determined it to be,
+/// or alternatively attempt to access any known individual field directly.
 /// 
-/// [`Evolving`] types may be [serialized][::rkyv::Serialize] into an [`ArchivedEvolution`], which may hold *any* version of that type,
-/// along with its version. When accessing it as an [`rkyv::Archive`][::rkyv::Archive]d type (i.e. zero-copy), you can then
-/// attempt to downcast it to a desired major version's [Probe][ProbeOf] type which can then be used to get the
-/// fully-compatible behavior of minor versions in a zero-copy fashion. If the accessed data has an outdated major version,
-/// you can still fully [deserialize][::rkyv::Deserialize] it as the latest major version through upgrade functions,
-/// though of course this will no longer be zero-copy. See the docs of [`ArchivedEvolution`] for more.
-///
+/// [`Evolving`] types may be [serialized][::rkyv::Serialize] into an [`ArchivedEvolution`], which may hold *any* [`Evolution`] of that type.
+/// From the [`ArchivedEvolution<E>`] you can obtain a reference to the base [`Evolving`] type's [`Probe`], and from that [`Probe`] attempt to
+/// access any of its known fields individually, or attempt to access it as a specific archived [`Evolution`] direclty (and therefore get access
+/// to all the fields included in that [`Evolution`] at zero cost if it succeeds).
+/// 
 /// # Safety
 ///
-/// - `probe_metadata` must return valid metadata to construct a `Probe` when combined with
-/// a pointer to a type `V` that implements [`VersionOf<Self>`] where `V::VERSION == version`.
-/// See the documentation of [`VersionOf`] for more.
-/// - `LatestVersion` must be the newest version of `Self`
-/// - `LatestProbe` must be a probe capable of handling all existing minor versions of the latest
-/// major version of `Self`.
+/// - `probe_metadata` must return valid metadata to construct a [`Probe`][Evolving::Probe] when combined with
+/// a pointer to the archived type of an [`Evolution`] where that [`Evolution`]'s [VERSION][Evolution::VERSION] is equal to the
+/// passed-in `version` parameter. See the documentation of [`Evolution`] for more.
+/// - `LatestEvolution` must be the newest [`Evolution`] of `Self`
+/// - `Probe` must be a [`Probe`] type capable of handling all [`Evolution`]s of `Self`
 pub unsafe trait Evolving {
     /// The latest [`Evolution`] of `Self`
     type LatestEvolution: Evolution<Base = Self>;
@@ -178,18 +169,16 @@ pub unsafe trait Evolving {
 /// occupies must also be the end of the whole struct.
 /// 
 /// [`Archived`]: Archive::Archived
-/// [`Self::ProbedBy`]: VersionOf::ProbedBy
-/// [`E::probe_metadata(Self::VERSION)`]: Evolving::probe_metadata
 /// [`ptr_meta` documentation]: ptr_meta::
 /// [*monotonically increasing*]: https://mathworld.wolfram.com/MonotoneIncreasing.html
 pub unsafe trait Evolution: Archive {
     /// The [`Evolving`] type that this type is an evolution of.
     type Base: Evolving + ?Sized;
 
-    /// The version of `Self::Of` for which `Self` is the concrete definition
+    /// The version identifier of this evolution of `Self::Base`
     const VERSION: Version;
 
-    /// The [`Pointee::Metadata`] that can be used to construct a [`ProbeOf<Self>`]
+    /// The [`Pointee::Metadata`] that can be used to construct a [`Probe<Base = Self::Base>`]
     /// which contains this verion's archived data ([`<Self as Archive>::Archived`][Archive::Archived]).
     /// In practical terms, this is the size in bytes of [`Self::Archived`][Archive::Archived].
     const METADATA: ProbeMetadata;
@@ -198,18 +187,21 @@ pub unsafe trait Evolution: Archive {
 /// All probe types must have this as their [`<Self as Pointee>::Metadata`][Pointee::Metadata]
 pub type ProbeMetadata = <[u8] as Pointee>::Metadata;
 
-/// Implemented by a concrete [Probe][ProbeOf] for a specific *major version* of an [`Evolving`] type.
+/// Implemented by a concrete [Probe] type for a specific [`Evolving`] type.
 /// 
-/// "[Probe][ProbeOf]" types are able to "poke at" or "[probe][ProbeOf::probe_as]" binary data
-/// which contains an **unknown** *minor version* within some known *major version* of an [`Evolving`]
-/// type in order to determine which actual version it contains. Probes will often use this ability to
-/// also implement helper accessor methods that attempt to access each individual field contained in
-/// any (known) minor version of that type.
+/// "[`Probe`]" types are able to "poke at" or "[probe][Probe::probe_as]" binary data
+/// which contains an **unknown** [`Evolution`] of an [`Evolving`]
+/// type in order to determine which actual version it contains and access the contained fields.
+/// Probes will often use this ability to also implement helper accessor methods that attempt to access
+/// each individual field contained in any (known) minor version of that type.
+/// 
+/// The key method of [`Probe`] is [`probe_as`][Probe::probe_as], through which richer functionality can
+/// then be built.
 /// 
 /// # Safety
 /// 
-/// - See [`VersionOf`]
-/// - TODO: describe the actual requirements here
+/// - See [`Evolution`]
+/// - TODO: describe more actual requirements here
 pub unsafe trait Probe
 where
     Self: Pointee<Metadata = ProbeMetadata>,
@@ -228,10 +220,10 @@ where
 
     /// "Probes" `self` as the given [`Evolution`].
     /// 
-    /// Returns `Some(&V::Archived)` if `self` is a >= minor version and `None` if `self` is an earlier minor version.
+    /// Returns `Some(&EV::Archived)` if `self` is a >= minor version and `None` if `self` is an earlier minor version.
     /// 
-    /// You can think of this as conceptually similar to [`Any::downcast_ref`][std::any::Any::downcast_ref].
-    fn probe_as<V: Evolution<Base = Self::Base>>(&self) -> Option<&V::Archived>;
+    /// You can think of this as conceptually similar to `Any::downcast_ref`.
+    fn probe_as<EV: Evolution<Base = Self::Base>>(&self) -> Option<&EV::Archived>;
 
     /// Assumes `self` is the given [`Evolution`] and casts self as that version.
     /// 
@@ -240,8 +232,8 @@ where
     /// This probe must have been created with data that is binary-compatible with the given
     /// version: it must be an equal or later minor version of the same [`Evolving`] type (i.e. same 'major' version).
     /// 
-    /// You can think of this as conceptually similar to [`Any::downcast_ref_unchecked`][std::any::Any::downcast_ref_unchecked].
-    unsafe fn as_version_unchecked<V: Evolution<Base = Self::Base>>(&self) -> &V::Archived;
+    /// You can think of this as conceptually similar to `Any::downcast_ref_unchecked`.
+    unsafe fn as_version_unchecked<EV: Evolution<Base = Self::Base>>(&self) -> &EV::Archived;
 
     /// Cast `&self` into a `&AnyProbe<E>`.
     /// 
@@ -295,7 +287,7 @@ where
     E: Evolving + ?Sized,
     Self: Pointee<Metadata = ProbeMetadata>,
 {
-    /// Unsafely "casts" `Self` as a concrete [Probe][ProbeOf] type.
+    /// Unsafely "casts" `Self` as a concrete [Probe][Probe] type.
     /// 
     /// # Safety
     /// 
@@ -303,7 +295,7 @@ where
     /// which then has safe interfaces with very particular requirements.
     /// 
     /// In order for this to be valid, `Self` must have originally been a valid `P`,
-    /// meaning a `P` backed by a [`Evolution`] that can be [`ProbedBy`][VersionOf::ProbedBy] `P`:
+    /// meaning a `P` backed by a [`Evolution`] of `<P as Probe>::Base`:
     /// 
     /// Specifically, `self` must have been created from properly aligned memory of the correct size, and
     /// [`ptr_meta::metadata(self)`] must give valid [`Pointee::Metadata`] for a `P` created from a data

@@ -53,8 +53,8 @@ impl<S: Fallible + ?Sized> Serialize<S> for Version {
     }
 }
 
-/// A type-erased [Probe][ProbeOf] for some `E`. This could contain any concrete [`ProbeOf<E>`]
-/// (there should be one [Probe][ProbeOf] for each major version of `E`).
+/// A type-erased [`Probe`] for some `E`. This could contain any concrete [`Probe`]
+/// with [`Base = E`][Probe::Base].
 /// 
 /// Constructing and otherwise using this type is extremely fraught, it's unlikely you'll need or
 /// want to interact with this type directly unless you want to create your own alternative to
@@ -80,22 +80,24 @@ impl<E: Evolving + ?Sized> ArchivePointee for AnyProbe<E> {
     }
 }
 
-/// The archived version of some [`Evolving`] type `E`, containing the data for *some version* of that
-/// `E` as well as a version descriptor of which version is contained.
+/// The archived version of an [`Evolving`] type `E`, containing the data for *some [`Evolution`]* of that`E`.
 /// 
-/// We can attempt to downcast into a concrete [`ProbeOf<E>`], i.e. a [Probe][ProbeOf] for some specific
-/// **major version** of `E`, or a specific [`Evolution`] directly, and upon success, access the data
-/// contained inside in a zero-copy fashion.
-/// 
-/// If the accessed data has an outdated major version, you can still fully [deserialize][::rkyv::Deserialize]
-/// it as the latest major version through upgrade functions, though of course this will no longer be zero-copy.**
-/// 
-/// \*\* TODO: this is not actually implemented yet.
+/// You can interact with the contained data by obtaining a [`Probe<Base = E>`] through [`as_probe`]
+/// (which will give back the latest known probe type of `E`, i.e. `<E as Evolving>::Probe`, thus allowing you to
+/// attempt to access all known fields individually), or by attempting to access the data
+/// as a specific known [`Evolution`] of `E` through [`probe_as_evolution`].
 /// 
 /// # Safety
 /// 
-/// Constructing this type is extremely fraught! It should only be constructed by casting existing data
+/// Interacting with an existing value of this type is safe, and as a user you need not worry unless you're using
+/// methods which are themselves `unsafe`.
+/// 
+/// As a developer implementing serialization, you should understand that
+/// constructing this type is extremely fraught! It should only be constructed by casting existing data
 /// and not constructed directly as an owned value.
+/// 
+/// [`as_probe`]: ArchivedEvolution::as_probe
+/// [`probe_as_evolution`]: ArchivedEvolution::probe_as_evolution
 #[repr(C)]
 pub struct ArchivedEvolution<E: Evolving + ?Sized> {
     probe: ArchivedBox<AnyProbe<E>>,
@@ -116,13 +118,13 @@ impl<E: Evolving + ?Sized> ArchivedEvolution<E> {
         self.as_probe().version()
     }
 
-    /// Downcast `self` as the latest known (to the compiled binary) [`ProbeOf<E>`] ([`E::Probe`][Evolving::Probe]).
+    /// Downcast `self` as the latest known (to the compiled binary) [`Probe`] of `E` ([`E::Probe`][Evolving::Probe]).
     #[inline(always)]
     pub fn as_probe(&self) -> &E::Probe {
         self.as_specific_probe::<E::Probe>()
     }
 
-    /// Downcast `self` as the given concrete [`ProbeOf<E>`]. You probably want just [`as_probe`][ArchivedEvolution::as_probe] instead.
+    /// Downcast `self` as the given concrete [`Probe<Base = E>`]. You probably want just [`as_probe`][ArchivedEvolution::as_probe] instead.
     #[inline(always)]
     pub fn as_specific_probe<P: Probe<Base = E> + ?Sized>(&self) -> &P {
         unsafe { self.probe.as_probe_unchecked() }
@@ -130,10 +132,10 @@ impl<E: Evolving + ?Sized> ArchivedEvolution<E> {
 
     /// Attempt to downcast `self` as the archived version of the given concrete [`Evolution`] directly.
     /// 
-    /// For this to succeed, the actual contained version in `self` must be the same or later [`Version`] as `V`.
+    /// For this to succeed, the actual contained version in `self` must be the same or later [`Version`] as `EV`.
     #[inline]
-    pub fn probe_as_version<V: Evolution<Base = E>>(&self) -> Option<&V::Archived> {
-        self.as_probe().probe_as::<V>()
+    pub fn probe_as_evolution<EV: Evolution<Base = E>>(&self) -> Option<&EV::Archived> {
+        self.as_probe().probe_as::<EV>()
     }
 
     /// Resolves an archived evolution from the given parameters.
@@ -145,7 +147,7 @@ impl<E: Evolving + ?Sized> ArchivedEvolution<E> {
     /// 
     /// - `pos` must be the position of `out` within the archive
     /// - `resolver` must be the result of serializing
-    /// (via [`serialize_with_version_serializer`][ArchivedEvolution::serialize_with_version_serializer]) the same [`Evolution`], `V`.
+    /// (via [`serialize_with_evolution_serializer`][ArchivedEvolution::serialize_with_evolution_serializer]) the same [`Evolution`], `V`.
     pub unsafe fn resolve_from_evolution<EV>(pos: usize, resolver: ArchivedEvolutionResolver<EV>, out: *mut Self)
     where
         EV: Evolution<Base = E>,
@@ -169,11 +171,11 @@ impl<E: Evolving + ?Sized> ArchivedEvolution<E> {
         }
     }
     
-    /// Serializes an archived evolution from a "`version_serializer: &VS`", where `VS` is a type that implements [`rkyv::Serialize`] with an
-    /// [`Archived`][rkyv::Archive::Archived] type `V` that is some [`Evolution`].
+    /// Serializes an archived evolution from a "`evolution_serializer: &EVS`", where `EVS` is a type that implements [`rkyv::Serialize`] with an
+    /// [`Archived`][rkyv::Archive::Archived] type that matches the archived type of some [`EV: Evolution`][Evolution].
     /// 
-    /// The main example of such a "version serializer" type is the base `E: Evolving` type, which should implement [`Serialize`] & [`Archive`] with an
-    /// [`Archive::Archived`] type that is [`<E as Evolving>::LatesteVersion`][Evolving::LatestVersion].
+    /// The main example of such a "evolution serializer" type is the base `E: Evolving` type, which should implement [`Serialize`] & [`Archive`] with an
+    /// [`Archive::Archived`] type that is [`<<E as Evolving>::LatestEvolution as Archive>::Archived`][Evolving::LatestEvolution].
     /// 
     /// You won't need to use this method unless you're manually implementing [`Serialize`]/[`Archive`] for an [`Evolving`] type,
     /// in which case it might be useful. It's used to help implement the provided derive macros.
@@ -199,7 +201,7 @@ impl<EV: Evolution> ArchivedEvolutionResolver<EV> {
     /// Create a new [`ArchivedEvolutionResolver<EV>`] from the given position.
     /// 
     /// Usually you wouldn't need to create this type directly and can rather obtain it from
-    /// [`ArchivedEvlution::serialize_with_version_serializer`].
+    /// [`ArchivedEvolution::serialize_with_evolution_serializer`].
     /// 
     /// # Safety
     /// 

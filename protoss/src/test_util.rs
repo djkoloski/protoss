@@ -6,30 +6,34 @@
 macro_rules! fake_evolving_struct {
     ($name:ident) => {
         #[derive(::rkyv::Archive, ::rkyv::Serialize, ::rkyv::Deserialize)]
-        #[archive(as = "<<Self as ::protoss::Evolving>::LatestVersion as ::rkyv::Archive>::Archived")]
+        #[archive(as = "<<Self as ::protoss::Evolving>::LatestEvolution as ::rkyv::Archive>::Archived")]
         struct $name {}
         #[derive(::rkyv::Archive, ::rkyv::Serialize)]
-        struct FakeVersion {}
+        struct FakeEvolution {}
         #[derive(::ptr_meta::Pointee)]
         struct FakeProbe {
             _data: [u8]
         }
-        unsafe impl ::protoss::VersionOf<$name> for FakeVersion {
-            type ProbedBy = FakeProbe;
-            const VERSION: ::protoss::Version = ::protoss::Version::new(0, 0);
+        unsafe impl ::protoss::Evolution for FakeEvolution {
+            type Base = $name;
+            const VERSION: ::protoss::Version = ::protoss::Version::new(0);
+            const METADATA: ::protoss::ProbeMetadata = core::mem::size_of::<<Self as ::rkyv::Archive>::Archived>() as ::protoss::ProbeMetadata;
         }
-        unsafe impl ::protoss::ProbeOf<$name> for FakeProbe {
-            const PROBES_MAJOR_VERSION: u16 = 0;
-            fn probe_as<V: ::protoss::VersionOf<$name, ProbedBy = Self>>(&self) -> Option<&V::Archived> {
+        unsafe impl ::protoss::Probe for FakeProbe {
+            type Base = $name;
+            fn probe_as<EV: ::protoss::Evolution<Base = $name>>(&self) -> Option<&EV::Archived> {
                 unimplemented!()
             }
-            unsafe fn as_version_unchecked<V: ::protoss::VersionOf<$name, ProbedBy = Self>>(&self) -> &V::Archived {
+            unsafe fn as_version_unchecked<EV: ::protoss::Evolution<Base = $name>>(&self) -> &EV::Archived {
+                unimplemented!()
+            }
+            fn version(&self) -> Option<::protoss::Version> {
                 unimplemented!()
             }
         }
         unsafe impl ::protoss::Evolving for $name {
-            type LatestVersion = FakeVersion;
-            type LatestProbe = FakeProbe;
+            type LatestEvolution = FakeEvolution;
+            type Probe = FakeProbe;
             fn probe_metadata(v: ::protoss::Version) -> Result<::protoss::ProbeMetadata, ::protoss::Error> {
                 unimplemented!()
             }
